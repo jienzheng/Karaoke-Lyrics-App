@@ -1,0 +1,10 @@
+{
+  "buildCommand": "npm run build",
+  "devCommand": "npm run dev",
+  "framework": "nextjs",
+  "installCommand": "npm install --legacy-peer-deps",
+  "env": {
+    "NEXT_PUBLIC_API_URL": "@karaoke-api-url",
+    "NEXT_PUBLIC_SPOTIFY_CLIENT_ID": "@spotify-client-id"
+  }
+}
