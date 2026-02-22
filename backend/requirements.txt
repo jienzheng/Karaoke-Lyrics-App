@@ -4,7 +4,7 @@ uvicorn[standard]==0.27.0
 python-multipart==0.0.6
 
 # HTTP Client
-httpx==0.26.0
+httpx==0.25.2
 requests==2.31.0
 
 # Database
@@ -23,8 +23,7 @@ pypinyin==0.51.0
 pykakasi==2.2.1
 hangul-romanize==0.1.0
 
-# CORS
-python-cors==1.0.0
+# CORS is built into FastAPI (fastapi.middleware.cors.CORSMiddleware)
 
 # Date/Time
 python-dateutil==2.8.2
