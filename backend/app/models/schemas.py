@@ -66,7 +66,7 @@ class LyricLine(BaseModel):
     end_time: Optional[float] = None
     text: str
     romanized_text: Optional[str] = None
-    words: Optional[List[Dict[str, any]]] = None  # For word-level timing
+    words: Optional[List[Dict[str, Any]]] = None  # For word-level timing
 
 
 class Lyrics(BaseModel):
