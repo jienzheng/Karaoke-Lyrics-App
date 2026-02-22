@@ -12,7 +12,7 @@ interface SpotifyPlayer {
   setVolume(volume: number): Promise<void>
   nextTrack(): Promise<void>
   previousTrack(): Promise<void>
-  getCurrentState(): Promise<Spotify.PlaybackState | null>
+  getCurrentState(): Promise<SpotifyPlayerState | null>
   addListener(event: string, callback: (data: any) => void): void
   removeListener(event: string, callback?: (data: any) => void): void
 }

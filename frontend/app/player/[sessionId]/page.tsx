@@ -127,7 +127,7 @@ export default function PlayerPage() {
     }
 
     fetchLyrics()
-  }, [playbackState?.current_song?.spotify_id])
+  }, [playbackState?.current_song])
 
   // Player controls
   const handlePlayPause = async () => {
