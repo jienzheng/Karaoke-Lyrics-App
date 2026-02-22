@@ -2,7 +2,7 @@
   "$schema": "https://karaoke-lyrics-app-production.up.railway.app",
   "build": {
     "builder": "NIXPACKS",
-    "buildCommand": "pip install -r requirements.txt"
+    "buildCommand": "pip install setuptools && pip install -r requirements.txt"
   },
   "deploy": {
     "startCommand": "uvicorn app.main:app --host 0.0.0.0 --port $PORT",
