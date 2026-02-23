@@ -10,7 +10,7 @@ export default function Home() {
     try {
       // Redirect to backend Spotify OAuth endpoint
       const apiUrl = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000'
-      window.location.href = `${apiUrl}/auth/login`
+      window.location.href = `${apiUrl}/api/auth/login`
     } catch (error) {
       console.error('Failed to initiate Spotify login:', error)
       setIsLoading(false)

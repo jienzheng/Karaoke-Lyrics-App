@@ -1,9 +1,18 @@
 'use client'
 
 import { useState, useEffect, useCallback } from 'react'
-import { SpotifyTrack } from '@/types'
 import api from '@/lib/api'
 import Image from 'next/image'
+
+interface Song {
+  id: string
+  name: string
+  artist: string
+  album?: string
+  duration_ms: number
+  spotify_uri: string
+  image_url?: string
+}
 
 interface SongSearchProps {
   sessionId: string
@@ -12,7 +21,7 @@ interface SongSearchProps {
 
 export default function SongSearch({ sessionId, onAddToQueue }: SongSearchProps) {
   const [query, setQuery] = useState('')
-  const [results, setResults] = useState<SpotifyTrack[]>([])
+  const [results, setResults] = useState<Song[]>([])
   const [isLoading, setIsLoading] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [addingIds, setAddingIds] = useState<Set<string>>(new Set())
@@ -29,7 +38,7 @@ export default function SongSearch({ sessionId, onAddToQueue }: SongSearchProps)
       setError(null)
       try {
         const data = await api.searchSongs(query)
-        setResults(data.tracks || [])
+        setResults(Array.isArray(data) ? data : [])
       } catch (err) {
         setError('Failed to search songs')
         console.error('Search error:', err)
@@ -41,7 +50,7 @@ export default function SongSearch({ sessionId, onAddToQueue }: SongSearchProps)
     return () => clearTimeout(timer)
   }, [query])
 
-  const handleAddToQueue = async (track: SpotifyTrack) => {
+  const handleAddToQueue = async (track: Song) => {
     setAddingIds(prev => new Set(prev).add(track.id))
     try {
       await onAddToQueue(track.id)
@@ -106,8 +115,6 @@ export default function SongSearch({ sessionId, onAddToQueue }: SongSearchProps)
         {results.length > 0 ? (
           results.map((track) => {
             const isAdding = addingIds.has(track.id)
-            const albumArt = track.album.images[0]?.url
-
             return (
               <div
                 key={track.id}
@@ -115,9 +122,9 @@ export default function SongSearch({ sessionId, onAddToQueue }: SongSearchProps)
               >
                 {/* Album Art */}
                 <div className="relative w-14 h-14 rounded-md overflow-hidden flex-shrink-0">
-                  {albumArt ? (
+                  {track.image_url ? (
                     <Image
-                      src={albumArt}
+                      src={track.image_url}
                       alt={track.name}
                       fill
                       className="object-cover"
@@ -145,7 +152,7 @@ export default function SongSearch({ sessionId, onAddToQueue }: SongSearchProps)
                 <div className="flex-1 min-w-0">
                   <p className="font-medium text-white truncate">{track.name}</p>
                   <p className="text-sm text-gray-400 truncate">
-                    {track.artists.map((a) => a.name).join(', ')}
+                    {track.artist}
                   </p>
                   <div className="flex items-center space-x-2 mt-1">
                     <span className="text-xs text-gray-500">
@@ -153,7 +160,7 @@ export default function SongSearch({ sessionId, onAddToQueue }: SongSearchProps)
                     </span>
                     <span className="text-xs text-gray-600">•</span>
                     <span className="text-xs text-gray-500 truncate">
-                      {track.album.name}
+                      {track.album}
                     </span>
                   </div>
                 </div>

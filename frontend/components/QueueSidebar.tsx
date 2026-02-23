@@ -66,10 +66,10 @@ export default function QueueSidebar({
               <div className="flex items-center space-x-3 p-3">
                 {/* Album Art */}
                 <div className="relative w-16 h-16 rounded-md overflow-hidden flex-shrink-0">
-                  {item.song.album_art_url ? (
+                  {item.song.image_url ? (
                     <Image
-                      src={item.song.album_art_url}
-                      alt={item.song.title}
+                      src={item.song.image_url}
+                      alt={item.song.name}
                       fill
                       className="object-cover"
                     />
@@ -104,7 +104,7 @@ export default function QueueSidebar({
                 {/* Song Info */}
                 <div className="flex-1 min-w-0">
                   <p className={`font-medium truncate ${isPlaying ? 'text-purple-300' : 'text-white'}`}>
-                    {item.song.title}
+                    {item.song.name}
                   </p>
                   <p className="text-sm text-gray-400 truncate">
                     {item.song.artist}
@@ -115,7 +115,7 @@ export default function QueueSidebar({
                     </span>
                     <span className="text-xs text-gray-600">•</span>
                     <span className="text-xs text-gray-500">
-                      Added by {item.added_by.display_name}
+                      Added by {item.added_by}
                     </span>
                   </div>
                 </div>

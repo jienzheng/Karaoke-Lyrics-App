@@ -11,12 +11,13 @@ export interface User {
 // Session types
 export interface Session {
   id: string
+  name: string
   code: string
-  host_user_id: string
+  host_id: string
   is_active: boolean
-  current_song_id?: string
+  current_song?: Song | null
   created_at: string
-  updated_at: string
+  lyrics_display_mode?: string
 }
 
 export interface SessionWithHost extends Session {
@@ -26,13 +27,12 @@ export interface SessionWithHost extends Session {
 // Song types
 export interface Song {
   id: string
-  spotify_id: string
-  title: string
+  name: string
   artist: string
-  album: string
+  album?: string
   duration_ms: number
-  album_art_url?: string
-  preview_url?: string
+  spotify_uri?: string
+  image_url?: string
 }
 
 export interface SpotifyTrack {
@@ -67,18 +67,13 @@ export interface Lyrics {
 // Queue types
 export interface QueueItem {
   id: string
-  session_id: string
-  song_id: string
-  added_by_user_id: string
+  song: Song
+  added_by: string
+  added_at: string
   position: number
-  status: 'pending' | 'playing' | 'completed'
-  created_at: string
 }
 
-export interface QueueItemWithDetails extends QueueItem {
-  song: Song
-  added_by: User
-}
+export interface QueueItemWithDetails extends QueueItem {}
 
 // Playback types
 export interface PlaybackState {

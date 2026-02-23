@@ -19,10 +19,10 @@ export default function NowPlaying({ song, isPlaying }: NowPlayingProps) {
         <div className="relative group">
           <div className={`absolute inset-0 bg-gradient-to-r from-purple-500 to-pink-500 rounded-2xl blur-xl opacity-50 ${isPlaying ? 'animate-pulse' : ''}`} />
           <div className="relative w-64 h-64 md:w-80 md:h-80 rounded-2xl overflow-hidden shadow-2xl border-4 border-white/10">
-            {song.album_art_url ? (
+            {song.image_url ? (
               <Image
-                src={song.album_art_url}
-                alt={`${song.title} album art`}
+                src={song.image_url}
+                alt={`${song.name} album art`}
                 fill
                 className="object-cover"
                 priority
@@ -50,7 +50,7 @@ export default function NowPlaying({ song, isPlaying }: NowPlayingProps) {
         {/* Song Info */}
         <div className="text-center space-y-2 max-w-2xl px-4">
           <h1 className="text-4xl md:text-5xl font-bold text-white tracking-tight">
-            {song.title}
+            {song.name}
           </h1>
           <p className="text-2xl md:text-3xl text-gray-300 font-medium">
             {song.artist}

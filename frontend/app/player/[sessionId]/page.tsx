@@ -1,6 +1,6 @@
 'use client'
 
-import { useEffect, useState, useCallback } from 'react'
+import { useEffect, useState, useCallback, useRef } from 'react'
 import { useParams, useRouter } from 'next/navigation'
 import api from '@/lib/api'
 import { useSpotifyPlayer } from '@/hooks/useSpotifyPlayer'
@@ -10,7 +10,6 @@ import {
   PlaybackStateWithDetails,
   Lyrics,
 } from '@/types'
-import NowPlaying from '@/components/NowPlaying'
 import LyricsDisplay from '@/components/LyricsDisplay'
 import PlayerControls from '@/components/PlayerControls'
 import QueueSidebar from '@/components/QueueSidebar'
@@ -30,10 +29,12 @@ export default function PlayerPage() {
   const [lyrics, setLyrics] = useState<Lyrics | null>(null)
   const [volume, setVolume] = useState(50)
   const [displayMode, setDisplayMode] = useState<LyricsDisplayMode>('both')
-  const [showQueue, setShowQueue] = useState(true)
-  const [showSearch, setShowSearch] = useState(false)
+  const [showSidebar, setShowSidebar] = useState(true)
+  const [sidebarTab, setSidebarTab] = useState<'queue' | 'search'>('queue')
   const [isLoading, setIsLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
+  const [countdown, setCountdown] = useState<number | null>(null)
+  const [countdownSong, setCountdownSong] = useState<any>(null)
 
   const {
     player,
@@ -48,7 +49,7 @@ export default function PlayerPage() {
   useEffect(() => {
     const token = localStorage.getItem('access_token')
     if (!token) {
-      router.push('/login')
+      router.push('/')
       return
     }
     setAccessToken(token)
@@ -109,16 +110,15 @@ export default function PlayerPage() {
 
   // Fetch lyrics when current song changes
   useEffect(() => {
-    if (!playbackState?.current_song?.spotify_id) {
+    const songId = playbackState?.current_song?.spotify_id || playbackState?.current_song?.id
+    if (!songId) {
       setLyrics(null)
       return
     }
 
     const fetchLyrics = async () => {
       try {
-        const lyricsData = await api.getSongLyrics(
-          playbackState.current_song!.spotify_id
-        )
+        const lyricsData = await api.getSongLyrics(songId)
         setLyrics(lyricsData)
       } catch (err) {
         console.error('Failed to fetch lyrics:', err)
@@ -129,17 +129,59 @@ export default function PlayerPage() {
     fetchLyrics()
   }, [playbackState?.current_song])
 
+  // Auto-advance: detect when song ends and trigger skip with countdown
+  const isAdvancingRef = useRef(false)
+
+  useEffect(() => {
+    const durationMs = playbackState?.current_song?.duration_ms
+    if (!playbackState?.current_song || !playerIsPlaying || !durationMs) return
+    if (isAdvancingRef.current || countdown !== null) return
+
+    if (currentPosition >= durationMs - 1000) {
+      isAdvancingRef.current = true
+      handleSkip().finally(() => {
+        isAdvancingRef.current = false
+      })
+    }
+  }, [currentPosition, playerIsPlaying, playbackState?.current_song, countdown])
+
+  // Countdown helper: shows song info for 5 seconds, then starts playback
+  const startWithCountdown = async (song: any) => {
+    setCountdownSong(song)
+    for (let i = 5; i >= 1; i--) {
+      setCountdown(i)
+      await new Promise((r) => setTimeout(r, 1000))
+    }
+    setCountdown(null)
+    setCountdownSong(null)
+    // Now actually play
+    if (song?.spotify_uri) {
+      await api.startPlayback(song.spotify_uri, deviceId)
+    }
+  }
+
   // Player controls
   const handlePlayPause = async () => {
-    if (!player) return
-
     try {
       if (playerIsPlaying) {
-        await api.pausePlayback(sessionId)
-        await player.pause()
-      } else {
-        await api.startPlayback(sessionId)
-        await player.resume()
+        await api.pausePlayback()
+        return
+      }
+
+      // If there's already a current song, resume from current position
+      const currentSong = playbackState?.current_song
+      if (currentSong?.spotify_uri) {
+        await api.resumePlayback(deviceId)
+        return
+      }
+
+      // No current song — advance queue to first song, countdown, then play
+      const result = await api.skipSong(sessionId)
+      const nextSong = result?.current_song?.song
+      await fetchQueue()
+      await fetchPlaybackState()
+      if (nextSong) {
+        await startWithCountdown(nextSong)
       }
     } catch (err) {
       console.error('Failed to toggle playback:', err)
@@ -148,9 +190,13 @@ export default function PlayerPage() {
 
   const handleSkip = async () => {
     try {
-      await api.skipSong(sessionId)
-      if (player) {
-        await player.nextTrack()
+      await api.pausePlayback()
+      const result = await api.skipSong(sessionId)
+      const nextSong = result?.current_song?.song
+      await fetchQueue()
+      await fetchPlaybackState()
+      if (nextSong) {
+        await startWithCountdown(nextSong)
       }
     } catch (err) {
       console.error('Failed to skip song:', err)
@@ -169,12 +215,14 @@ export default function PlayerPage() {
   }
 
   const handleSeek = async (timeMs: number) => {
-    if (player) {
-      try {
+    try {
+      if (player) {
         await player.seek(timeMs)
-      } catch (err) {
-        console.error('Failed to seek:', err)
+      } else {
+        await api.seekPlayback(timeMs)
       }
+    } catch (err) {
+      console.error('Failed to seek:', err)
     }
   }
 
@@ -306,11 +354,11 @@ export default function PlayerPage() {
 
             {/* Toggle Buttons */}
             <button
-              onClick={() => setShowSearch(!showSearch)}
+              onClick={() => { setShowSidebar(true); setSidebarTab('search') }}
               className={`p-2 rounded-lg transition-colors ${
-                showSearch ? 'bg-purple-600' : 'bg-gray-800/50 hover:bg-gray-700'
+                showSidebar && sidebarTab === 'search' ? 'bg-purple-600' : 'bg-gray-800/50 hover:bg-gray-700'
               }`}
-              title="Toggle search"
+              title="Search songs"
             >
               <svg
                 className="w-5 h-5"
@@ -328,11 +376,11 @@ export default function PlayerPage() {
             </button>
 
             <button
-              onClick={() => setShowQueue(!showQueue)}
+              onClick={() => { setShowSidebar(true); setSidebarTab('queue') }}
               className={`p-2 rounded-lg transition-colors ${
-                showQueue ? 'bg-purple-600' : 'bg-gray-800/50 hover:bg-gray-700'
+                showSidebar && sidebarTab === 'queue' ? 'bg-purple-600' : 'bg-gray-800/50 hover:bg-gray-700'
               }`}
-              title="Toggle queue"
+              title="Show queue"
             >
               <svg
                 className="w-5 h-5"
@@ -354,85 +402,103 @@ export default function PlayerPage() {
         {/* Main Content */}
         <div className="flex-1 flex overflow-hidden">
           {/* Sidebar (Search/Queue) */}
-          {(showSearch || showQueue) && (
+          {showSidebar && (
             <div className="w-96 bg-black/30 backdrop-blur-sm border-r border-white/10 flex flex-col">
               {/* Tabs */}
               <div className="flex border-b border-white/10">
-                {showSearch && (
-                  <button
-                    onClick={() => setShowSearch(true)}
-                    className={`flex-1 px-4 py-3 font-medium transition-colors ${
-                      showSearch && !showQueue
-                        ? 'text-white border-b-2 border-purple-500'
-                        : 'text-gray-400 hover:text-white'
-                    }`}
-                  >
-                    Search
-                  </button>
-                )}
-                {showQueue && (
-                  <button
-                    className="flex-1 px-4 py-3 font-medium text-white border-b-2 border-purple-500"
-                  >
-                    Queue ({queue.length})
-                  </button>
-                )}
+                <button
+                  onClick={() => setSidebarTab('search')}
+                  className={`flex-1 px-4 py-3 font-medium transition-colors ${
+                    sidebarTab === 'search'
+                      ? 'text-white border-b-2 border-purple-500'
+                      : 'text-gray-400 hover:text-white'
+                  }`}
+                >
+                  Search
+                </button>
+                <button
+                  onClick={() => setSidebarTab('queue')}
+                  className={`flex-1 px-4 py-3 font-medium transition-colors ${
+                    sidebarTab === 'queue'
+                      ? 'text-white border-b-2 border-purple-500'
+                      : 'text-gray-400 hover:text-white'
+                  }`}
+                >
+                  Queue ({queue.length})
+                </button>
               </div>
 
               {/* Content */}
               <div className="flex-1 overflow-hidden">
-                {showSearch && !showQueue ? (
+                {sidebarTab === 'search' ? (
                   <div className="h-full p-4 overflow-y-auto">
                     <SongSearch
                       sessionId={sessionId}
                       onAddToQueue={handleAddToQueue}
                     />
                   </div>
-                ) : showQueue ? (
+                ) : (
                   <QueueSidebar
                     queue={queue}
                     currentSongId={playbackState?.current_song?.id || null}
                     onRemove={handleRemoveFromQueue}
                     onReorder={handleReorderQueue}
                   />
-                ) : null}
+                )}
               </div>
             </div>
           )}
 
           {/* Player Area */}
-          <div className="flex-1 flex flex-col overflow-hidden">
-            {/* Now Playing */}
-            {playbackState?.current_song && (
-              <div className="flex-shrink-0">
-                <NowPlaying
-                  song={playbackState.current_song}
-                  isPlaying={playerIsPlaying}
-                />
-              </div>
-            )}
-
-            {/* Lyrics */}
-            <div className="flex-1 overflow-hidden">
+          <div className="flex-1 flex flex-col overflow-hidden min-h-0">
+            {/* Lyrics — takes all available space */}
+            <div className="flex-1 min-h-0 overflow-hidden">
               <LyricsDisplay
                 lyrics={lyrics}
                 currentTimeMs={currentPosition}
                 displayMode={displayMode}
+                countdownSeconds={countdown ?? 0}
+                countdownSong={countdownSong}
+                status={
+                  countdown !== null
+                    ? 'countdown'
+                    : queue.length === 0 && !playbackState?.current_song
+                    ? 'empty_queue'
+                    : queue.length > 0 && !playbackState?.current_song
+                    ? 'ready_to_play'
+                    : playbackState?.current_song && !lyrics
+                    ? 'no_lyrics'
+                    : 'playing'
+                }
               />
             </div>
 
-            {/* Controls */}
-            <div className="flex-shrink-0 p-6 bg-black/30 backdrop-blur-sm border-t border-white/10">
-              <PlayerControls
-                isPlaying={playerIsPlaying}
-                currentTimeMs={currentPosition}
-                durationMs={playbackState?.current_song?.duration_ms || 0}
-                volume={volume}
-                onPlayPause={handlePlayPause}
-                onSkip={handleSkip}
-                onVolumeChange={handleVolumeChange}
-                onSeek={handleSeek}
-              />
+            {/* Controls + compact song info */}
+            <div className="flex-shrink-0 bg-black/30 backdrop-blur-sm border-t border-white/10">
+              {/* Compact now-playing bar */}
+              {playbackState?.current_song && countdown === null && (
+                <div className="flex items-center justify-center gap-3 px-4 pt-3">
+                  <span className="text-sm font-semibold text-white truncate">
+                    {playbackState.current_song.name}
+                  </span>
+                  <span className="text-sm text-gray-500">—</span>
+                  <span className="text-sm text-gray-400 truncate">
+                    {playbackState.current_song.artist}
+                  </span>
+                </div>
+              )}
+              <div className="p-4 md:p-6">
+                <PlayerControls
+                  isPlaying={playerIsPlaying}
+                  currentTimeMs={currentPosition}
+                  durationMs={playbackState?.current_song?.duration_ms || 0}
+                  volume={volume}
+                  onPlayPause={handlePlayPause}
+                  onSkip={handleSkip}
+                  onVolumeChange={handleVolumeChange}
+                  onSeek={handleSeek}
+                />
+              </div>
             </div>
           </div>
         </div>

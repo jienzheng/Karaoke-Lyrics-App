@@ -82,7 +82,7 @@ export default function PlayerControls({
         {/* Play/Pause Button */}
         <button
           onClick={onPlayPause}
-          className="w-16 h-16 rounded-full bg-gradient-to-r from-purple-500 to-pink-500 hover:from-purple-600 hover:to-pink-600 flex items-center justify-center transition-all duration-200 shadow-lg hover:shadow-xl transform hover:scale-105"
+          className="w-16 h-16 rounded-full bg-gradient-to-r from-purple-500 to-pink-500 hover:from-purple-600 hover:to-pink-600 flex items-center justify-center transition-all duration-200 shadow-lg hover:shadow-xl transform hover:scale-105 cursor-pointer"
         >
           {isPlaying ? (
             <svg
@@ -106,7 +106,7 @@ export default function PlayerControls({
         {/* Skip Button */}
         <button
           onClick={onSkip}
-          className="w-12 h-12 rounded-full bg-gray-700 hover:bg-gray-600 flex items-center justify-center transition-all duration-200"
+          className="w-12 h-12 rounded-full bg-gray-700 hover:bg-gray-600 flex items-center justify-center transition-all duration-200 cursor-pointer"
         >
           <svg
             className="w-6 h-6 text-white"

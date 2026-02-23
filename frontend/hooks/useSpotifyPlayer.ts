@@ -1,6 +1,6 @@
 'use client'
 
-import { useEffect, useState, useRef, useCallback } from 'react'
+import { useEffect, useState, useRef } from 'react'
 
 interface SpotifyPlayer {
   connect(): Promise<boolean>
@@ -51,35 +51,20 @@ export function useSpotifyPlayer(accessToken: string | null): UseSpotifyPlayerRe
   const [currentPosition, setCurrentPosition] = useState(0)
   const [isPlaying, setIsPlaying] = useState(false)
   const [error, setError] = useState<string | null>(null)
-  const positionIntervalRef = useRef<NodeJS.Timeout | null>(null)
+  const playerRef = useRef<SpotifyPlayer | null>(null)
+  // Timestamp-based position tracking for accurate lyrics sync
+  const playbackRef = useRef<{ position: number; timestamp: number; playing: boolean }>({
+    position: 0, timestamp: 0, playing: false,
+  })
+  const rafRef = useRef<number | null>(null)
 
-  // Load Spotify SDK script
   useEffect(() => {
     if (!accessToken) return
 
-    // Check if script is already loaded
-    if ((window as any).Spotify) {
-      return
-    }
+    const initPlayer = () => {
+      // Don't create a second player if one already exists
+      if (playerRef.current) return
 
-    const script = document.createElement('script')
-    script.src = 'https://sdk.scdn.co/spotify-player.js'
-    script.async = true
-    document.body.appendChild(script)
-
-    return () => {
-      // Cleanup script if component unmounts before loading
-      if (script.parentNode) {
-        script.parentNode.removeChild(script)
-      }
-    }
-  }, [accessToken])
-
-  // Initialize player
-  useEffect(() => {
-    if (!accessToken) return
-
-    ;(window as any).onSpotifyWebPlaybackSDKReady = () => {
       const spotifyPlayer = new (window as any).Spotify.Player({
         name: 'Karaoke Player',
         getOAuthToken: (cb: (token: string) => void) => {
@@ -88,43 +73,46 @@ export function useSpotifyPlayer(accessToken: string | null): UseSpotifyPlayerRe
         volume: 0.5,
       })
 
-      // Ready
       spotifyPlayer.addListener('ready', ({ device_id }: { device_id: string }) => {
         console.log('Spotify player ready with device ID:', device_id)
         setDeviceId(device_id)
         setIsReady(true)
       })
 
-      // Not Ready
       spotifyPlayer.addListener('not_ready', ({ device_id }: { device_id: string }) => {
         console.log('Device has gone offline:', device_id)
         setIsReady(false)
       })
 
-      // Player state changed
       spotifyPlayer.addListener('player_state_changed', (state: SpotifyPlayerState | null) => {
         if (!state) return
 
+        // Record the exact position and wall-clock time for interpolation
+        playbackRef.current = {
+          position: state.position,
+          timestamp: performance.now(),
+          playing: !state.paused,
+        }
         setCurrentPosition(state.position)
         setIsPlaying(!state.paused)
 
-        // Update position while playing
-        if (!state.paused) {
-          if (positionIntervalRef.current) {
-            clearInterval(positionIntervalRef.current)
+        // Start or stop the animation frame loop
+        if (!state.paused && !rafRef.current) {
+          const tick = () => {
+            const { position, timestamp, playing } = playbackRef.current
+            if (playing) {
+              const elapsed = performance.now() - timestamp
+              setCurrentPosition(Math.round(position + elapsed))
+              rafRef.current = requestAnimationFrame(tick)
+            }
           }
-          positionIntervalRef.current = setInterval(() => {
-            setCurrentPosition((prev) => prev + 1000)
-          }, 1000)
-        } else {
-          if (positionIntervalRef.current) {
-            clearInterval(positionIntervalRef.current)
-            positionIntervalRef.current = null
-          }
+          rafRef.current = requestAnimationFrame(tick)
+        } else if (state.paused && rafRef.current) {
+          cancelAnimationFrame(rafRef.current)
+          rafRef.current = null
         }
       })
 
-      // Errors
       spotifyPlayer.addListener('initialization_error', ({ message }: { message: string }) => {
         console.error('Initialization error:', message)
         setError(message)
@@ -145,18 +133,34 @@ export function useSpotifyPlayer(accessToken: string | null): UseSpotifyPlayerRe
         setError(message)
       })
 
-      // Connect to the player
       spotifyPlayer.connect()
-
+      playerRef.current = spotifyPlayer
       setPlayer(spotifyPlayer)
     }
 
-    return () => {
-      if (player) {
-        player.disconnect()
+    // If SDK is already loaded, init immediately. Otherwise load the script.
+    if ((window as any).Spotify) {
+      initPlayer()
+    } else {
+      (window as any).onSpotifyWebPlaybackSDKReady = initPlayer
+
+      // Only add the script if it hasn't been added yet
+      if (!document.querySelector('script[src="https://sdk.scdn.co/spotify-player.js"]')) {
+        const script = document.createElement('script')
+        script.src = 'https://sdk.scdn.co/spotify-player.js'
+        script.async = true
+        document.body.appendChild(script)
       }
-      if (positionIntervalRef.current) {
-        clearInterval(positionIntervalRef.current)
+    }
+
+    return () => {
+      if (playerRef.current) {
+        playerRef.current.disconnect()
+        playerRef.current = null
+      }
+      if (rafRef.current) {
+        cancelAnimationFrame(rafRef.current)
+        rafRef.current = null
       }
     }
   }, [accessToken])
