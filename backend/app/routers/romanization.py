@@ -1,4 +1,4 @@
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter, HTTPException, Body
 from app.models.schemas import RomanizationRequest, RomanizationResponse
 from app.services.romanization_service import RomanizationService
 
@@ -30,7 +30,7 @@ async def romanize_text(request: RomanizationRequest):
 
 
 @router.post("/detect-and-convert")
-async def detect_and_romanize(text: str):
+async def detect_and_romanize(text: str = Body(..., embed=True)):
     """
     Auto-detect language and romanize text
     """

@@ -64,6 +64,7 @@ class LyricLine(BaseModel):
     """Single line of lyrics with timing"""
     start_time: float  # seconds
     end_time: Optional[float] = None
+    time_ms: Optional[int] = None  # milliseconds (for frontend)
     text: str
     romanized_text: Optional[str] = None
     words: Optional[List[Dict[str, Any]]] = None  # For word-level timing
@@ -115,6 +116,7 @@ class Session(BaseModel):
     """Karaoke session"""
     id: str
     name: str
+    code: str = ""
     host_id: str
     created_at: datetime = Field(default_factory=datetime.utcnow)
     is_active: bool = True

@@ -15,7 +15,36 @@ interface LyricsDisplayProps {
   countdownSong?: Song | null
 }
 
-const CJK_REGEX = /[\u3040-\u309f\u30a0-\u30ff\u4e00-\u9fff\u3400-\u4dbf\uF900-\uFAFF\uac00-\ud7af]/
+// Chinese + Japanese characters (need character-by-character splitting & aggressive compression)
+const CJK_REGEX = /[\u3040-\u309f\u30a0-\u30ff\u4e00-\u9fff\u3400-\u4dbf\uF900-\uFAFF]/
+
+// Split text into highlight units: CJK chars split individually, other text splits by spaces.
+// Each unit has text + trailing separator for rendering.
+function splitIntoUnits(text: string): { text: string; sep: string }[] {
+  const words = text.split(/(\s+)/).filter(Boolean)
+  const units: { text: string; sep: string }[] = []
+
+  for (let w = 0; w < words.length; w++) {
+    const word = words[w]
+    if (/^\s+$/.test(word)) continue // skip whitespace tokens
+
+    // Determine separator after this word
+    const nextToken = words[w + 1]
+    const wordSep = nextToken && /^\s+$/.test(nextToken) ? nextToken : ''
+
+    if (CJK_REGEX.test(word)) {
+      // Split CJK word into individual characters
+      const chars = [...word].filter(ch => ch.trim())
+      chars.forEach((ch, ci) => {
+        units.push({ text: ch, sep: ci < chars.length - 1 ? '' : wordSep })
+      })
+    } else {
+      units.push({ text: word, sep: wordSep })
+    }
+  }
+
+  return units
+}
 
 function WordHighlightedLine({
   text,
@@ -30,17 +59,10 @@ function WordHighlightedLine({
   inactiveClassName: string
   style?: React.CSSProperties
 }) {
-  const hasSpaces = /\s/.test(text.trim())
-
-  // If text has spaces (Korean, Japanese with word-segmentation, English): split by spaces
-  // If no spaces (Chinese, unsegmented Japanese): split by characters
-  const units = hasSpaces
-    ? text.split(/\s+/).filter(Boolean)
-    : [...text].filter(ch => ch.trim())
+  const units = splitIntoUnits(text)
 
   if (units.length === 0) return null
 
-  const separator = hasSpaces ? ' ' : ''
   const activeIndex = Math.floor(progress * units.length)
 
   return (
@@ -50,7 +72,7 @@ function WordHighlightedLine({
           key={i}
           className={i <= activeIndex ? activeClassName : inactiveClassName}
         >
-          {unit}{i < units.length - 1 ? separator : ''}
+          {unit.text}{unit.sep}
         </span>
       ))}
     </p>
@@ -77,7 +99,10 @@ export default function LyricsDisplay({
 
     let lineIndex = -1
     for (let i = 0; i < lyrics.lines.length; i++) {
-      if (currentTimeMs >= lyrics.lines[i].time_ms) {
+      // Transition to next line 300ms early to eliminate the dead gap
+      // after highlighting completes but before the next timestamp
+      const offset = i > 0 ? 300 : 0
+      if (currentTimeMs >= lyrics.lines[i].time_ms - offset) {
         lineIndex = i
       } else {
         break
@@ -181,11 +206,7 @@ export default function LyricsDisplay({
   const nextLine = currentLineIndex + 1 < lyrics.lines.length ? lyrics.lines[currentLineIndex + 1] : null
 
   const getText = (line: LyricsLine) => {
-    if (displayMode === 'romanized' && line.romanized_text) {
-      // Korean: hangul is already a phonetic alphabet, show it instead of romanization
-      if (lyrics?.language === 'korean') return line.text
-      return line.romanized_text
-    }
+    if (displayMode === 'romanized' && line.romanized_text) return line.romanized_text
     return line.text
   }
 

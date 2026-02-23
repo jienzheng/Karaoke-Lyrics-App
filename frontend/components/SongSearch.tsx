@@ -111,7 +111,7 @@ export default function SongSearch({ sessionId, onAddToQueue }: SongSearchProps)
       )}
 
       {/* Results */}
-      <div className="space-y-2 max-h-96 overflow-y-auto">
+      <div className="space-y-2 overflow-y-auto">
         {results.length > 0 ? (
           results.map((track) => {
             const isAdding = addingIds.has(track.id)

@@ -354,7 +354,10 @@ export default function PlayerPage() {
 
             {/* Toggle Buttons */}
             <button
-              onClick={() => { setShowSidebar(true); setSidebarTab('search') }}
+              onClick={() => {
+                if (showSidebar && sidebarTab === 'search') { setShowSidebar(false) }
+                else { setShowSidebar(true); setSidebarTab('search') }
+              }}
               className={`p-2 rounded-lg transition-colors ${
                 showSidebar && sidebarTab === 'search' ? 'bg-purple-600' : 'bg-gray-800/50 hover:bg-gray-700'
               }`}
@@ -376,7 +379,10 @@ export default function PlayerPage() {
             </button>
 
             <button
-              onClick={() => { setShowSidebar(true); setSidebarTab('queue') }}
+              onClick={() => {
+                if (showSidebar && sidebarTab === 'queue') { setShowSidebar(false) }
+                else { setShowSidebar(true); setSidebarTab('queue') }
+              }}
               className={`p-2 rounded-lg transition-colors ${
                 showSidebar && sidebarTab === 'queue' ? 'bg-purple-600' : 'bg-gray-800/50 hover:bg-gray-700'
               }`}
@@ -452,7 +458,7 @@ export default function PlayerPage() {
           {/* Player Area */}
           <div className="flex-1 flex flex-col overflow-hidden min-h-0">
             {/* Lyrics — takes all available space */}
-            <div className="flex-1 min-h-0 overflow-hidden">
+            <div className="flex-1 min-h-0 overflow-hidden relative">
               <LyricsDisplay
                 lyrics={lyrics}
                 currentTimeMs={currentPosition}
@@ -471,6 +477,23 @@ export default function PlayerPage() {
                     : 'playing'
                 }
               />
+              {/* "Next song" banner — slides across bottom when ≤20s remaining */}
+              {(() => {
+                const durationMs = playbackState?.current_song?.duration_ms ?? 0
+                const timeLeft = durationMs - currentPosition
+                const nextSong = queue[0]
+                if (!nextSong || !playerIsPlaying || timeLeft > 20000 || timeLeft <= 0 || countdown !== null) return null
+                return (
+                  <div className="absolute bottom-2 left-0 w-full overflow-hidden pointer-events-none">
+                    <p
+                      className="whitespace-nowrap text-sm text-gray-400 animate-marquee"
+                      style={{ animation: 'marquee 10s linear infinite' }}
+                    >
+                      Next song: {nextSong.song.name} — {nextSong.song.artist}
+                    </p>
+                  </div>
+                )
+              })()}
             </div>
 
             {/* Controls + compact song info */}

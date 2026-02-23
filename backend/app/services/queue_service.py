@@ -1,6 +1,8 @@
 """
 Queue service - manages karaoke sessions and song queues
 """
+import random
+import string
 from typing import Optional, List
 from datetime import datetime
 from app.models.schemas import Session, QueueItem, Song, LyricsDisplayMode
@@ -14,16 +16,23 @@ class QueueService:
     def __init__(self):
         self.spotify_service = SpotifyService()
 
+    @staticmethod
+    def _generate_code(length: int = 6) -> str:
+        """Generate a random alphanumeric session code"""
+        return ''.join(random.choices(string.ascii_uppercase + string.digits, k=length))
+
     async def create_session(self, name: str, host_id: str) -> Session:
         """
         Create a new karaoke session
         """
         db = get_db()
+        code = self._generate_code()
 
         # Insert session
         result = db.table("sessions").insert({
             "name": name,
             "host_id": host_id,
+            "code": code,
             "is_active": True,
             "lyrics_display_mode": "both"
         }).execute()
@@ -42,6 +51,7 @@ class QueueService:
         return Session(
             id=session_data["id"],
             name=session_data["name"],
+            code=session_data.get("code", ""),
             host_id=session_data["host_id"],
             created_at=datetime.fromisoformat(session_data["created_at"]),
             is_active=session_data["is_active"],
@@ -50,12 +60,14 @@ class QueueService:
 
     async def join_session(self, session_id: str, user_id: str) -> Optional[Session]:
         """
-        Join an existing session
+        Join an existing session. session_id can be a UUID or a 6-char code.
         """
         db = get_db()
 
-        # Check if session exists and is active
-        session_result = db.table("sessions").select("*").eq("id", session_id).eq("is_active", True).execute()
+        # Try lookup by code first (short codes), then fall back to UUID
+        session_result = db.table("sessions").select("*").eq("code", session_id.upper()).eq("is_active", True).execute()
+        if not session_result.data:
+            session_result = db.table("sessions").select("*").eq("id", session_id).eq("is_active", True).execute()
 
         if not session_result.data:
             return None
@@ -65,7 +77,7 @@ class QueueService:
         # Add user to participants (ignore if already exists)
         try:
             db.table("session_participants").insert({
-                "session_id": session_id,
+                "session_id": session_data["id"],
                 "user_id": user_id
             }).execute()
         except Exception:
@@ -75,6 +87,7 @@ class QueueService:
         return Session(
             id=session_data["id"],
             name=session_data["name"],
+            code=session_data.get("code", ""),
             host_id=session_data["host_id"],
             created_at=datetime.fromisoformat(session_data["created_at"]),
             is_active=session_data["is_active"],
@@ -97,6 +110,7 @@ class QueueService:
         return Session(
             id=session_data["id"],
             name=session_data["name"],
+            code=session_data.get("code", ""),
             host_id=session_data["host_id"],
             created_at=datetime.fromisoformat(session_data["created_at"]),
             is_active=session_data["is_active"],
@@ -224,7 +238,7 @@ class QueueService:
 
     async def play_next(self, session_id: str, user_id: str) -> Optional[QueueItem]:
         """
-        Move to next song in queue
+        Move to next song in queue. Removes the current song and starts the next one.
         """
         db = get_db()
 
@@ -235,14 +249,14 @@ class QueueService:
             .eq("is_playing", True) \
             .execute()
 
-        # Mark current as not playing
+        # Delete the current song from the queue so we advance
         if current_result.data:
             db.table("queue_items") \
-                .update({"is_playing": False}) \
+                .delete() \
                 .eq("id", current_result.data[0]["id"]) \
                 .execute()
 
-        # Get next song
+        # Get next song (lowest position remaining)
         next_result = db.table("queue_items") \
             .select("*") \
             .eq("session_id", session_id) \
@@ -278,6 +292,37 @@ class QueueService:
             added_at=datetime.fromisoformat(next_item["created_at"]),
             position=next_item["position"]
         )
+
+    async def reorder_queue_item(self, session_id: str, queue_item_id: str, new_position: int) -> bool:
+        """
+        Move a queue item to a new position by swapping with the item at that position.
+        """
+        db = get_db()
+
+        # Get the item to move
+        item_result = db.table("queue_items").select("*").eq("id", queue_item_id).execute()
+        if not item_result.data:
+            return False
+
+        old_position = item_result.data[0]["position"]
+
+        # Get the item currently at the target position
+        target_result = db.table("queue_items") \
+            .select("*") \
+            .eq("session_id", session_id) \
+            .eq("position", new_position) \
+            .execute()
+
+        if not target_result.data:
+            # No item at target position, just move directly
+            db.table("queue_items").update({"position": new_position}).eq("id", queue_item_id).execute()
+        else:
+            # Swap positions
+            target_id = target_result.data[0]["id"]
+            db.table("queue_items").update({"position": new_position}).eq("id", queue_item_id).execute()
+            db.table("queue_items").update({"position": old_position}).eq("id", target_id).execute()
+
+        return True
 
     async def get_current_song(self, session_id: str) -> Optional[QueueItem]:
         """

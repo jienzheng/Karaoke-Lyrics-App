@@ -53,9 +53,9 @@ class ApiClient {
   }
 
   // Song methods
-  async searchSongs(query: string) {
+  async searchSongs(query: string, limit: number = 10) {
     const response = await this.client.get('/api/spotify/search', {
-      params: { q: query },
+      params: { q: query, limit },
     })
     return response.data
   }
@@ -201,13 +201,17 @@ class ApiClient {
   }
 
   async getPlaybackState(sessionId: string) {
-    const current = await this.client.get(`/api/queue/${sessionId}/current`).catch(() => null)
-    if (!current?.data) return null
-    return {
-      session_id: sessionId,
-      is_playing: false,
-      position_ms: 0,
-      current_song: current.data.song,
+    try {
+      const current = await this.client.get(`/api/queue/${sessionId}/current`)
+      if (!current?.data) return null
+      return {
+        session_id: sessionId,
+        is_playing: false,
+        position_ms: 0,
+        current_song: current.data.song,
+      }
+    } catch {
+      return null
     }
   }
 }

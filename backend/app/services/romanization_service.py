@@ -77,8 +77,8 @@ class RomanizationService:
         """
         try:
             result = self.kks.convert(text)
-            # Extract the 'hepburn' romanization
-            romanized = ''.join([item['hepburn'] for item in result])
+            # Extract the 'hepburn' romanization with spaces between words
+            romanized = ' '.join([item['hepburn'] for item in result])
             return romanized
         except Exception as e:
             print(f"Error romanizing Japanese: {e}")
@@ -95,8 +95,10 @@ class RomanizationService:
             Romanized Korean (Academic system)
         """
         try:
-            romanized = self.korean_transliter.translit(text)
-            return romanized
+            # Romanize word by word to preserve spacing between Korean words
+            words = text.split()
+            romanized_words = [self.korean_transliter.translit(word) for word in words]
+            return ' '.join(romanized_words)
         except Exception as e:
             print(f"Error romanizing Korean: {e}")
             return text
@@ -140,6 +142,16 @@ class RomanizationService:
         romanized_lines = []
         for line in lyrics.lines:
             romanized_text = await self.romanize_text(line.text, lyrics.language)
+
+            # For Japanese: word-segment the original text using pykakasi token boundaries
+            # so original and romanized have matching word counts for synced highlighting
+            if lyrics.language == LanguageType.JAPANESE:
+                try:
+                    kks_result = self.kks.convert(line.text)
+                    line.text = ' '.join([item['orig'] for item in kks_result])
+                except Exception:
+                    pass
+
             romanized_line = LyricLine(
                 start_time=line.start_time,
                 end_time=line.end_time,

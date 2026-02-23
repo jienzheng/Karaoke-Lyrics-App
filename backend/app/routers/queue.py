@@ -1,4 +1,4 @@
-from fastapi import APIRouter, HTTPException, Depends
+from fastapi import APIRouter, HTTPException, Depends, Query, Request
 from typing import List
 from app.models.schemas import QueueItem, QueueAddRequest, Song, Session, SessionCreate, SessionJoin
 from app.services.queue_service import QueueService
@@ -11,7 +11,7 @@ queue_service = QueueService()
 # ==================== Session Management ====================
 
 @router.post("/session/create", response_model=Session)
-async def create_session(session_data: SessionCreate, user_id: str):
+async def create_session(session_data: SessionCreate, user_id: str = Query(...)):
     """
     Create a new karaoke session
     """
@@ -26,7 +26,7 @@ async def create_session(session_data: SessionCreate, user_id: str):
 
 
 @router.post("/session/join", response_model=Session)
-async def join_session(join_data: SessionJoin, user_id: str):
+async def join_session(join_data: SessionJoin, user_id: str = Query(...)):
     """
     Join an existing session
     """
@@ -63,15 +63,22 @@ async def get_session(session_id: str):
 # ==================== Queue Management ====================
 
 @router.post("/add", response_model=QueueItem)
-async def add_to_queue(request: QueueAddRequest, user_id: str):
+async def add_to_queue(request: Request, request_body: QueueAddRequest, user_id: str = Query(...)):
     """
     Add a song to the queue
     """
     try:
+        # Extract Bearer token from Authorization header
+        access_token = None
+        auth_header = request.headers.get("Authorization", "")
+        if auth_header.startswith("Bearer "):
+            access_token = auth_header[7:]
+
         queue_item = await queue_service.add_to_queue(
-            session_id=request.session_id,
-            song_id=request.song_id,
-            user_id=user_id
+            session_id=request_body.session_id,
+            song_id=request_body.song_id,
+            user_id=user_id,
+            access_token=access_token
         )
         return queue_item
     except Exception as e:
@@ -91,7 +98,7 @@ async def get_queue(session_id: str):
 
 
 @router.delete("/{queue_item_id}")
-async def remove_from_queue(queue_item_id: str, user_id: str):
+async def remove_from_queue(queue_item_id: str, user_id: str = Query(...)):
     """
     Remove a song from the queue
     """
@@ -106,8 +113,24 @@ async def remove_from_queue(queue_item_id: str, user_id: str):
         raise HTTPException(status_code=500, detail=f"Failed to remove song: {str(e)}")
 
 
+@router.post("/{session_id}/reorder")
+async def reorder_queue(session_id: str, queue_item_id: str = Query(...), new_position: int = Query(...)):
+    """
+    Move a queue item to a new position
+    """
+    try:
+        success = await queue_service.reorder_queue_item(session_id, queue_item_id, new_position)
+        if not success:
+            raise HTTPException(status_code=404, detail="Queue item not found")
+        return {"message": "Queue reordered"}
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Failed to reorder queue: {str(e)}")
+
+
 @router.post("/{session_id}/next")
-async def play_next(session_id: str, user_id: str):
+async def play_next(session_id: str, user_id: str = Query(...)):
     """
     Move to the next song in the queue
     """
@@ -120,17 +143,15 @@ async def play_next(session_id: str, user_id: str):
         raise HTTPException(status_code=500, detail=f"Failed to play next song: {str(e)}")
 
 
-@router.get("/{session_id}/current", response_model=QueueItem)
+@router.get("/{session_id}/current")
 async def get_current_song(session_id: str):
     """
-    Get the currently playing song
+    Get the currently playing song. Returns null if nothing is playing.
     """
     try:
         current_song = await queue_service.get_current_song(session_id)
         if not current_song:
-            raise HTTPException(status_code=404, detail="No song currently playing")
+            return None
         return current_song
-    except HTTPException:
-        raise
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Failed to get current song: {str(e)}")

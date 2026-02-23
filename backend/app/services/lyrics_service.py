@@ -62,6 +62,7 @@ class LyricsService:
                 if text:  # Only add non-empty lines
                     lines.append(LyricLine(
                         start_time=start_time,
+                        time_ms=int(start_time * 1000),
                         text=text
                     ))
 
@@ -163,11 +164,95 @@ class LyricsService:
     async def get_cached_lyrics(self, song_id: str) -> Optional[LyricsResponse]:
         """
         Get lyrics from cache/database
-        Will be implemented when database tables are set up
         """
-        # TODO: Query database for cached lyrics
-        # For now, return None (no cache)
-        return None
+        try:
+            db = get_db()
+            result = db.table("lyrics_cache").select("*").eq("song_id", song_id).execute()
+
+            if not result.data:
+                return None
+
+            cached = result.data[0]
+
+            # Reconstruct LyricsResponse from cached JSON
+            original_lines = [
+                LyricLine(
+                    start_time=line["start_time"],
+                    end_time=line.get("end_time"),
+                    time_ms=line.get("time_ms"),
+                    text=line["text"],
+                    romanized_text=line.get("romanized_text"),
+                )
+                for line in cached["original_lyrics"]
+            ]
+
+            original_lyrics = Lyrics(
+                song_id=song_id,
+                language=LanguageType(cached["language"]),
+                lines=original_lines,
+                synced=cached.get("synced", False),
+                source=cached.get("source", "lrclib"),
+            )
+
+            romanized_lyrics = None
+            if cached.get("romanized_lyrics"):
+                romanized_lines = [
+                    LyricLine(
+                        start_time=line["start_time"],
+                        end_time=line.get("end_time"),
+                        time_ms=line.get("time_ms"),
+                        text=line["text"],
+                        romanized_text=line.get("romanized_text"),
+                    )
+                    for line in cached["romanized_lyrics"]
+                ]
+                romanized_lyrics = Lyrics(
+                    song_id=song_id,
+                    language=LanguageType(cached["language"]),
+                    lines=romanized_lines,
+                    synced=cached.get("synced", False),
+                    source=cached.get("source", "lrclib"),
+                )
+
+            return LyricsResponse(
+                song_id=song_id,
+                original_lyrics=original_lyrics,
+                romanized_lyrics=romanized_lyrics,
+                detected_language=LanguageType(cached["language"]),
+            )
+        except Exception as e:
+            print(f"Error reading lyrics cache: {e}")
+            return None
+
+    async def cache_lyrics(
+        self, song_id: str, response: LyricsResponse,
+        song_name: str = "", artist_name: str = ""
+    ) -> None:
+        """
+        Cache a LyricsResponse to the database
+        """
+        try:
+            db = get_db()
+
+            original_lines = [line.model_dump() for line in response.original_lyrics.lines]
+            romanized_lines = (
+                [line.model_dump() for line in response.romanized_lyrics.lines]
+                if response.romanized_lyrics
+                else None
+            )
+
+            db.table("lyrics_cache").upsert({
+                "song_id": song_id,
+                "song_name": song_name or song_id,
+                "artist_name": artist_name or "",
+                "language": response.detected_language.value,
+                "synced": response.original_lyrics.synced,
+                "source": response.original_lyrics.source,
+                "original_lyrics": original_lines,
+                "romanized_lyrics": romanized_lines,
+            }).execute()
+        except Exception as e:
+            print(f"Error caching lyrics: {e}")
 
     async def search_lyrics(self, song_name: str, artist_name: str) -> list:
         """

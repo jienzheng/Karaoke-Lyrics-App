@@ -21,7 +21,7 @@ class Database:
             try:
                 self._client = create_client(
                     settings.SUPABASE_URL,
-                    settings.SUPABASE_KEY,
+                    settings.SUPABASE_SERVICE_KEY,
                 )
             except Exception as e:
                 if "Invalid API key" in str(e) or "invalid" in str(e).lower():
