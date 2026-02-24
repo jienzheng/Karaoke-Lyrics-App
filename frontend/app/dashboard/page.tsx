@@ -2,7 +2,7 @@
 
 import { useEffect, useState } from 'react'
 import { useRouter } from 'next/navigation'
-import api from '@/lib/api'
+import api, { API_URL } from '@/lib/api'
 
 export default function Dashboard() {
   const router = useRouter()
@@ -13,7 +13,7 @@ export default function Dashboard() {
   const [isJoining, setIsJoining] = useState(false)
   const [error, setError] = useState<string | null>(null)
 
-  const apiUrl = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000'
+  const apiUrl = API_URL
 
   useEffect(() => {
     // Guests should not access the dashboard

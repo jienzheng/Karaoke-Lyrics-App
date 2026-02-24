@@ -2,6 +2,7 @@
 
 import { useState } from 'react'
 import { useRouter } from 'next/navigation'
+import { API_URL } from '@/lib/api'
 
 export default function Home() {
   const router = useRouter()
@@ -11,7 +12,7 @@ export default function Home() {
   const [isJoiningAsGuest, setIsJoiningAsGuest] = useState(false)
   const [guestError, setGuestError] = useState<string | null>(null)
 
-  const apiUrl = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000'
+  const apiUrl = API_URL
 
   const handleSpotifyLogin = async () => {
     setIsLoading(true)
