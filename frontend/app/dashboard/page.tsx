@@ -2,6 +2,7 @@
 
 import { useEffect, useState } from 'react'
 import { useRouter } from 'next/navigation'
+import api from '@/lib/api'
 
 export default function Dashboard() {
   const router = useRouter()
@@ -27,18 +28,15 @@ export default function Dashboard() {
       return
     }
 
-    // Fetch user profile
-    fetch(`${apiUrl}/api/auth/me?access_token=${token}`)
-      .then((res) => {
-        if (!res.ok) throw new Error('Failed to fetch user')
-        return res.json()
-      })
+    // Fetch user profile via api client (sends Authorization: Bearer header)
+    api
+      .getCurrentUser()
       .then((data) => setUser(data))
       .catch(() => {
         localStorage.removeItem('access_token')
         router.push('/')
       })
-  }, [router, apiUrl])
+  }, [router])
 
   const handleCreateSession = async () => {
     setIsCreating(true)
