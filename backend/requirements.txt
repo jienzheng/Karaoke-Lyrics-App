@@ -20,12 +20,11 @@ spotipy==2.23.0
 
 # Romanization Libraries
 pypinyin==0.51.0
-pykakasi==2.2.1
+pykakasi>=2.3.0
 hangul-romanize==0.1.0
 
-# Packaging utilities required by pykakasi (provides pkg_resources)
+# setuptools provides pkg_resources (required by older pykakasi; kept for safety)
 setuptools
-setuptools  # required by pykakasi (pkg_resources) on Python 3.12+
 
 # CORS is built into FastAPI (fastapi.middleware.cors.CORSMiddleware)
 

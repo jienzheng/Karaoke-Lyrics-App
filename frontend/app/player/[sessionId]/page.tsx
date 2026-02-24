@@ -166,7 +166,7 @@ export default function PlayerPage() {
     }
 
     fetchLyrics()
-  }, [playbackState?.current_song])
+  }, [playbackState?.current_song, sessionId])
 
   // Pre-fetch lyrics for the next song in queue
   const prefetchingRef = useRef<string | null>(null)
@@ -200,7 +200,7 @@ export default function PlayerPage() {
           prefetchingRef.current = null
         }
       })
-  }, [queue, playbackState?.current_song])
+  }, [queue, playbackState?.current_song, sessionId])
 
   // Auto-advance: detect when song ends and trigger skip with countdown (host only)
   const isAdvancingRef = useRef(false)
@@ -220,6 +220,7 @@ export default function PlayerPage() {
         isAdvancingRef.current = false
       })
     }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [currentPosition, playerIsPlaying, playbackState?.current_song, countdown, isHost])
 
   // --- Host: report playback position to DB every 1s ---
@@ -339,7 +340,7 @@ export default function PlayerPage() {
       clearInterval(interval)
       cancelAnimationFrame(guestRafRef.current)
     }
-  }, [isHost, ready, sessionId]) // No `queue` — uses queueRef instead
+  }, [isHost, ready, sessionId, fetchPlaybackState]) // No `queue` — uses queueRef instead
 
   // Countdown helper: shows song info for N seconds, then starts playback.
   // Setting countdownCancelledRef causes the loop to stop early.
