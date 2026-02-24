@@ -1,15 +1,23 @@
-from fastapi import APIRouter, HTTPException, Depends, Query, Request
+from fastapi import APIRouter, HTTPException, Query, Request
 from pydantic import BaseModel
-from typing import List
-from app.models.schemas import QueueItem, QueueAddRequest, Song, Session, SessionCreate, SessionJoin, PlaybackStateUpdate, PlaybackStateResponse
+
+from app.models.schemas import (
+    PlaybackStateResponse,
+    PlaybackStateUpdate,
+    QueueAddRequest,
+    QueueItem,
+    Session,
+    SessionCreate,
+    SessionJoin,
+)
 from app.services.queue_service import QueueService
-from app.models.database import get_db
 
 router = APIRouter()
 queue_service = QueueService()
 
 
 # ==================== Session Management ====================
+
 
 @router.post("/session/create", response_model=Session)
 async def create_session(session_data: SessionCreate, user_id: str = Query(...)):
@@ -24,7 +32,7 @@ async def create_session(session_data: SessionCreate, user_id: str = Query(...))
         )
         return session
     except Exception as e:
-        raise HTTPException(status_code=500, detail=f"Failed to create session: {str(e)}")
+        raise HTTPException(status_code=500, detail=f"Failed to create session: {e!s}")
 
 
 @router.post("/session/join", response_model=Session)
@@ -33,17 +41,14 @@ async def join_session(join_data: SessionJoin, user_id: str = Query(...)):
     Join an existing session
     """
     try:
-        session = await queue_service.join_session(
-            session_id=join_data.session_id,
-            user_id=user_id
-        )
+        session = await queue_service.join_session(session_id=join_data.session_id, user_id=user_id)
         if not session:
             raise HTTPException(status_code=404, detail="Session not found")
         return session
     except HTTPException:
         raise
     except Exception as e:
-        raise HTTPException(status_code=500, detail=f"Failed to join session: {str(e)}")
+        raise HTTPException(status_code=500, detail=f"Failed to join session: {e!s}")
 
 
 @router.get("/session/{session_id}", response_model=Session)
@@ -59,10 +64,11 @@ async def get_session(session_id: str):
     except HTTPException:
         raise
     except Exception as e:
-        raise HTTPException(status_code=500, detail=f"Failed to get session: {str(e)}")
+        raise HTTPException(status_code=500, detail=f"Failed to get session: {e!s}")
 
 
 # ==================== Queue Management ====================
+
 
 @router.post("/add", response_model=QueueItem)
 async def add_to_queue(request: Request, request_body: QueueAddRequest, user_id: str = Query(...)):
@@ -87,14 +93,14 @@ async def add_to_queue(request: Request, request_body: QueueAddRequest, user_id:
             session_id=request_body.session_id,
             song_id=request_body.song_id,
             user_id=user_id,
-            access_token=access_token
+            access_token=access_token,
         )
         return queue_item
     except Exception as e:
-        raise HTTPException(status_code=500, detail=f"Failed to add song to queue: {str(e)}")
+        raise HTTPException(status_code=500, detail=f"Failed to add song to queue: {e!s}")
 
 
-@router.get("/{session_id}/list", response_model=List[QueueItem])
+@router.get("/{session_id}/list", response_model=list[QueueItem])
 async def get_queue(session_id: str):
     """
     Get all songs in the queue for a session
@@ -103,7 +109,7 @@ async def get_queue(session_id: str):
         queue_items = await queue_service.get_queue(session_id)
         return queue_items
     except Exception as e:
-        raise HTTPException(status_code=500, detail=f"Failed to get queue: {str(e)}")
+        raise HTTPException(status_code=500, detail=f"Failed to get queue: {e!s}")
 
 
 @router.delete("/{queue_item_id}")
@@ -119,11 +125,13 @@ async def remove_from_queue(queue_item_id: str, user_id: str = Query(...)):
     except HTTPException:
         raise
     except Exception as e:
-        raise HTTPException(status_code=500, detail=f"Failed to remove song: {str(e)}")
+        raise HTTPException(status_code=500, detail=f"Failed to remove song: {e!s}")
 
 
 @router.post("/{session_id}/reorder")
-async def reorder_queue(session_id: str, queue_item_id: str = Query(...), new_position: int = Query(...)):
+async def reorder_queue(
+    session_id: str, queue_item_id: str = Query(...), new_position: int = Query(...)
+):
     """
     Move a queue item to a new position
     """
@@ -135,11 +143,11 @@ async def reorder_queue(session_id: str, queue_item_id: str = Query(...), new_po
     except HTTPException:
         raise
     except Exception as e:
-        raise HTTPException(status_code=500, detail=f"Failed to reorder queue: {str(e)}")
+        raise HTTPException(status_code=500, detail=f"Failed to reorder queue: {e!s}")
 
 
 class ReorderBatchRequest(BaseModel):
-    item_ids: List[str]
+    item_ids: list[str]
 
 
 @router.post("/{session_id}/reorder-batch")
@@ -155,7 +163,7 @@ async def reorder_queue_batch(session_id: str, body: ReorderBatchRequest):
     except HTTPException:
         raise
     except Exception as e:
-        raise HTTPException(status_code=500, detail=f"Failed to reorder queue: {str(e)}")
+        raise HTTPException(status_code=500, detail=f"Failed to reorder queue: {e!s}")
 
 
 @router.post("/{session_id}/next")
@@ -169,7 +177,7 @@ async def play_next(session_id: str, user_id: str = Query(...)):
             return {"message": "No more songs in queue"}
         return {"current_song": next_song}
     except Exception as e:
-        raise HTTPException(status_code=500, detail=f"Failed to play next song: {str(e)}")
+        raise HTTPException(status_code=500, detail=f"Failed to play next song: {e!s}")
 
 
 @router.get("/{session_id}/current")
@@ -183,10 +191,11 @@ async def get_current_song(session_id: str):
             return None
         return current_song
     except Exception as e:
-        raise HTTPException(status_code=500, detail=f"Failed to get current song: {str(e)}")
+        raise HTTPException(status_code=500, detail=f"Failed to get current song: {e!s}")
 
 
 # ==================== Playback State Sync ====================
+
 
 @router.put("/{session_id}/playback-state")
 async def update_playback_state(session_id: str, body: PlaybackStateUpdate):
@@ -201,7 +210,7 @@ async def update_playback_state(session_id: str, body: PlaybackStateUpdate):
         )
         return {"ok": True}
     except Exception as e:
-        raise HTTPException(status_code=500, detail=f"Failed to update playback state: {str(e)}")
+        raise HTTPException(status_code=500, detail=f"Failed to update playback state: {e!s}")
 
 
 @router.get("/{session_id}/playback-state")
@@ -219,4 +228,4 @@ async def get_playback_state(session_id: str):
             updated_at=state["updated_at"],
         )
     except Exception as e:
-        raise HTTPException(status_code=500, detail=f"Failed to get playback state: {str(e)}")
+        raise HTTPException(status_code=500, detail=f"Failed to get playback state: {e!s}")

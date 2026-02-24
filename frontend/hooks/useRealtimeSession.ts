@@ -3,12 +3,12 @@
  * Manages session state and participant updates
  */
 import { useEffect, useState, useCallback } from 'react';
-import type { Session, User } from '@/types';
+import type { Session } from '@/types';
 
 interface UseRealtimeSessionOptions {
   sessionId: string;
   onSessionUpdate?: (session: Session) => void;
-  onParticipantJoined?: (user: User) => void;
+  onParticipantJoined?: (userId: string) => void;
   onParticipantLeft?: (userId: string) => void;
 }
 
@@ -19,7 +19,6 @@ export function useRealtimeSession({
   onParticipantLeft,
 }: UseRealtimeSessionOptions) {
   const [session, setSession] = useState<Session | null>(null);
-  const [participants, setParticipants] = useState<User[]>([]);
   const [isConnected, setIsConnected] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
@@ -99,7 +98,6 @@ export function useRealtimeSession({
 
   return {
     session,
-    participants,
     isConnected,
     error,
     refetch,

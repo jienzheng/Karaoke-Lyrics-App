@@ -52,8 +52,7 @@ class ApiClient {
 
   // Auth methods
   async getCurrentUser() {
-    const token = localStorage.getItem('access_token')
-    const response = await this.client.get(`/api/auth/me?access_token=${token}`)
+    const response = await this.client.get('/api/auth/me')
     return response.data
   }
 
@@ -65,7 +64,7 @@ class ApiClient {
 
   // Song methods
   async searchSongs(query: string, limit: number = 10, sessionId?: string) {
-    const params: Record<string, any> = { q: query, limit }
+    const params: Record<string, string | number> = { q: query, limit }
     if (sessionId && isGuestSession()) {
       params.session_id = sessionId
     }
@@ -94,6 +93,7 @@ class ApiClient {
 
     // Transform backend LyricsResponse into the flat Lyrics format the frontend expects
     if (data?.original_lyrics?.lines) {
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
       const lines = data.original_lyrics.lines.map((line: any, i: number) => {
         const romanizedLine = data.romanized_lyrics?.lines?.[i]
         return {

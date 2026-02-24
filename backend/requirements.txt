@@ -26,6 +26,11 @@ hangul-romanize==0.1.0
 # setuptools provides pkg_resources (required by older pykakasi; kept for safety)
 setuptools
 
+# Dev / CI tools (not required at runtime — install locally or in CI)
+# pip install ruff mypy
+# ruff>=0.4.0
+# mypy>=1.10.0
+
 # CORS is built into FastAPI (fastapi.middleware.cors.CORSMiddleware)
 
 # Date/Time

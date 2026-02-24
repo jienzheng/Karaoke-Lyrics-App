@@ -1,7 +1,8 @@
 'use client'
 
-import { useState } from 'react'
+import React, { useState } from 'react'
 import { QueueItemWithDetails } from '@/types'
+import { formatDuration } from '@/lib/utils'
 import Image from 'next/image'
 import {
   DndContext,
@@ -28,13 +29,6 @@ interface QueueSidebarProps {
   currentSongId: string | null
   onRemove: (queueItemId: string) => void
   onReorder: (orderedIds: string[]) => void
-}
-
-function formatDuration(ms: number) {
-  const totalSeconds = Math.floor(ms / 1000)
-  const minutes = Math.floor(totalSeconds / 60)
-  const seconds = totalSeconds % 60
-  return `${minutes}:${seconds.toString().padStart(2, '0')}`
 }
 
 interface SortableQueueItemProps {
@@ -75,7 +69,7 @@ interface QueueItemCardProps {
   item: QueueItemWithDetails
   isPlaying: boolean
   onRemove: (id: string) => void
-  dragListeners?: Record<string, any>
+  dragListeners?: React.HTMLAttributes<HTMLElement>
   isOverlay?: boolean
 }
 

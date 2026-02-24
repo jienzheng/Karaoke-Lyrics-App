@@ -1,12 +1,17 @@
 """
 Lyrics service - fetches and processes lyrics from LRCLIB
 """
-import httpx
+
+import logging
 import re
 from datetime import datetime
-from typing import Optional, List
-from app.models.schemas import Lyrics, LyricsResponse, LyricLine, LanguageType
+
+import httpx
+
 from app.models.database import get_db
+from app.models.schemas import LanguageType, LyricLine, Lyrics, LyricsResponse
+
+logger = logging.getLogger(__name__)
 
 LYRICS_CACHE_MAX = 500
 
@@ -23,9 +28,9 @@ class LyricsService:
         Simple heuristic based on Unicode ranges
         """
         # Count characters in different language ranges
-        chinese_count = len(re.findall(r'[\u4e00-\u9fff]', text))
-        japanese_count = len(re.findall(r'[\u3040-\u309f\u30a0-\u30ff]', text))
-        korean_count = len(re.findall(r'[\uac00-\ud7af]', text))
+        chinese_count = len(re.findall(r"[\u4e00-\u9fff]", text))
+        japanese_count = len(re.findall(r"[\u3040-\u309f\u30a0-\u30ff]", text))
+        korean_count = len(re.findall(r"[\uac00-\ud7af]", text))
 
         total_asian = chinese_count + japanese_count + korean_count
 
@@ -43,15 +48,15 @@ class LyricsService:
         else:
             return LanguageType.OTHER
 
-    def parse_lrc(self, lrc_content: str) -> List[LyricLine]:
+    def parse_lrc(self, lrc_content: str) -> list[LyricLine]:
         """
         Parse LRC format lyrics into structured format
         LRC format: [mm:ss.xx]lyric text
         """
         lines = []
-        lrc_pattern = r'\[(\d+):(\d+)\.(\d+)\](.*)'
+        lrc_pattern = r"\[(\d+):(\d+)\.(\d+)\](.*)"
 
-        for line in lrc_content.split('\n'):
+        for line in lrc_content.split("\n"):
             match = re.match(lrc_pattern, line)
             if match:
                 minutes = int(match.group(1))
@@ -63,11 +68,9 @@ class LyricsService:
                 start_time = minutes * 60 + seconds + centiseconds / 100
 
                 if text:  # Only add non-empty lines
-                    lines.append(LyricLine(
-                        start_time=start_time,
-                        time_ms=int(start_time * 1000),
-                        text=text
-                    ))
+                    lines.append(
+                        LyricLine(start_time=start_time, time_ms=int(start_time * 1000), text=text)
+                    )
 
         # Sort by start time and calculate end times
         lines.sort(key=lambda x: x.start_time)
@@ -80,7 +83,7 @@ class LyricsService:
 
         return lines
 
-    def _parse_lrclib_data(self, data: dict) -> Optional[tuple]:
+    def _parse_lrclib_data(self, data: dict) -> tuple | None:
         """Parse an LRCLIB response dict into (lines, synced, detected_language).
         Returns None if no usable lyrics content."""
         lrc_content = data.get("syncedLyrics") or data.get("plainLyrics")
@@ -90,26 +93,29 @@ class LyricsService:
         lines = self.parse_lrc(lrc_content) if data.get("syncedLyrics") else []
 
         if not lines and data.get("plainLyrics"):
-            plain_lines = data.get("plainLyrics").split('\n')
+            plain_lines = data.get("plainLyrics").split("\n")
             lines = [
                 LyricLine(start_time=i * 3.0, text=line.strip())
-                for i, line in enumerate(plain_lines) if line.strip()
+                for i, line in enumerate(plain_lines)
+                if line.strip()
             ]
 
         if not lines:
             return None
 
-        full_text = ' '.join([line.text for line in lines])
+        full_text = " ".join([line.text for line in lines])
         detected_language = self.detect_language(full_text)
         synced = bool(data.get("syncedLyrics"))
         return lines, synced, detected_language
 
-    def _expected_language_from_metadata(self, song_name: str, artist_name: str) -> Optional[LanguageType]:
+    def _expected_language_from_metadata(
+        self, song_name: str, artist_name: str
+    ) -> LanguageType | None:
         """Guess the expected language from song/artist name characters."""
         combined = song_name + " " + artist_name
-        korean_chars = len(re.findall(r'[\uac00-\ud7af]', combined))
-        japanese_chars = len(re.findall(r'[\u3040-\u309f\u30a0-\u30ff]', combined))
-        chinese_chars = len(re.findall(r'[\u4e00-\u9fff]', combined))
+        korean_chars = len(re.findall(r"[\uac00-\ud7af]", combined))
+        japanese_chars = len(re.findall(r"[\u3040-\u309f\u30a0-\u30ff]", combined))
+        chinese_chars = len(re.findall(r"[\u4e00-\u9fff]", combined))
 
         if korean_chars > 0:
             return LanguageType.KOREAN
@@ -121,7 +127,7 @@ class LyricsService:
 
     async def _search_for_better_lyrics(
         self, song_name: str, artist_name: str, expected_lang: LanguageType
-    ) -> Optional[dict]:
+    ) -> dict | None:
         """Search LRCLIB for alternatives and return the best match for expected_lang."""
         try:
             async with httpx.AsyncClient() as client:
@@ -137,7 +143,10 @@ class LyricsService:
             for result in results:
                 # Check artist matches reasonably
                 result_artist = (result.get("artistName") or "").lower()
-                if artist_name.lower() not in result_artist and result_artist not in artist_name.lower():
+                if (
+                    artist_name.lower() not in result_artist
+                    and result_artist not in artist_name.lower()
+                ):
                     continue
                 parsed = self._parse_lrclib_data(result)
                 if parsed and parsed[2] == expected_lang:
@@ -146,7 +155,7 @@ class LyricsService:
         except Exception:
             return None
 
-    async def _lrclib_get(self, song_name: str, artist_name: str) -> Optional[dict]:
+    async def _lrclib_get(self, song_name: str, artist_name: str) -> dict | None:
         """Try LRCLIB /get with just track + artist (no album/duration to avoid
         strict-match failures). Returns the JSON dict or None."""
         try:
@@ -163,7 +172,7 @@ class LyricsService:
         except Exception:
             return None
 
-    async def _lrclib_search(self, song_name: str, artist_name: str) -> Optional[dict]:
+    async def _lrclib_search(self, song_name: str, artist_name: str) -> dict | None:
         """Fuzzy-search LRCLIB and return the best matching result,
         preferring synced lyrics over plain lyrics."""
         try:
@@ -212,9 +221,9 @@ class LyricsService:
         self,
         song_name: str,
         artist_name: str,
-        album_name: Optional[str] = None,
-        duration: Optional[int] = None
-    ) -> Optional[Lyrics]:
+        album_name: str | None = None,
+        duration: int | None = None,
+    ) -> Lyrics | None:
         """
         Fetch lyrics from LRCLIB API.
 
@@ -258,34 +267,40 @@ class LyricsService:
             if (
                 expected_lang
                 and detected_language != expected_lang
-                and detected_language in (LanguageType.JAPANESE, LanguageType.KOREAN, LanguageType.CHINESE)
+                and detected_language
+                in (LanguageType.JAPANESE, LanguageType.KOREAN, LanguageType.CHINESE)
             ):
-                print(f"Language mismatch for '{song_name}' by '{artist_name}': "
-                      f"got {detected_language.value}, expected {expected_lang.value}. Searching for better match...")
+                logger.info(
+                    "Language mismatch for '%s' by '%s': got %s, expected %s. Searching for better match...",
+                    song_name,
+                    artist_name,
+                    detected_language.value,
+                    expected_lang.value,
+                )
                 better = await self._search_for_better_lyrics(song_name, artist_name, expected_lang)
                 if better:
                     alt_parsed = self._parse_lrclib_data(better)
                     if alt_parsed:
                         lines, synced, detected_language = alt_parsed
-                        print(f"Found better match with language: {detected_language.value}")
+                        logger.info("Found better match with language: %s", detected_language.value)
 
-            song_id = f"{artist_name}_{song_name}".lower().replace(' ', '_')
+            song_id = f"{artist_name}_{song_name}".lower().replace(" ", "_")
 
             lyrics = Lyrics(
                 song_id=song_id,
                 language=detected_language,
                 lines=lines,
                 synced=synced,
-                source="lrclib"
+                source="lrclib",
             )
 
             return lyrics
 
         except Exception as e:
-            print(f"Error processing lyrics: {e}")
+            logger.error("Error processing lyrics: %s", e)
             return None
 
-    async def get_cached_lyrics(self, song_id: str) -> Optional[LyricsResponse]:
+    async def get_cached_lyrics(self, song_id: str) -> LyricsResponse | None:
         """
         Get lyrics from cache/database
         """
@@ -300,7 +315,9 @@ class LyricsService:
 
             # Touch updated_at for LRU eviction
             try:
-                db.table("lyrics_cache").update({"updated_at": datetime.utcnow().isoformat()}).eq("song_id", song_id).execute()
+                db.table("lyrics_cache").update({"updated_at": datetime.utcnow().isoformat()}).eq(
+                    "song_id", song_id
+                ).execute()
             except Exception:
                 pass
 
@@ -351,12 +368,11 @@ class LyricsService:
                 detected_language=LanguageType(cached["language"]),
             )
         except Exception as e:
-            print(f"Error reading lyrics cache: {e}")
+            logger.error("Error reading lyrics cache: %s", e)
             return None
 
     async def cache_lyrics(
-        self, song_id: str, response: LyricsResponse,
-        song_name: str = "", artist_name: str = ""
+        self, song_id: str, response: LyricsResponse, song_name: str = "", artist_name: str = ""
     ) -> None:
         """
         Cache a LyricsResponse to the database
@@ -371,21 +387,23 @@ class LyricsService:
                 else None
             )
 
-            db.table("lyrics_cache").upsert({
-                "song_id": song_id,
-                "song_name": song_name or song_id,
-                "artist_name": artist_name or "",
-                "language": response.detected_language.value,
-                "synced": response.original_lyrics.synced,
-                "source": response.original_lyrics.source,
-                "original_lyrics": original_lines,
-                "romanized_lyrics": romanized_lines,
-            }).execute()
+            db.table("lyrics_cache").upsert(
+                {
+                    "song_id": song_id,
+                    "song_name": song_name or song_id,
+                    "artist_name": artist_name or "",
+                    "language": response.detected_language.value,
+                    "synced": response.original_lyrics.synced,
+                    "source": response.original_lyrics.source,
+                    "original_lyrics": original_lines,
+                    "romanized_lyrics": romanized_lines,
+                }
+            ).execute()
 
             # Evict oldest entries if cache exceeds limit
             self._evict_cache(db)
         except Exception as e:
-            print(f"Error caching lyrics: {e}")
+            logger.error("Error caching lyrics: %s", e)
 
     @staticmethod
     def _evict_cache(db) -> None:
@@ -398,17 +416,15 @@ class LyricsService:
 
             excess = total - LYRICS_CACHE_MAX
             # Get the oldest entries by updated_at
-            oldest = db.table("lyrics_cache") \
-                .select("id") \
-                .order("updated_at") \
-                .limit(excess) \
-                .execute()
+            oldest = (
+                db.table("lyrics_cache").select("id").order("updated_at").limit(excess).execute()
+            )
 
             if oldest.data:
                 ids_to_delete = [row["id"] for row in oldest.data]
                 db.table("lyrics_cache").delete().in_("id", ids_to_delete).execute()
         except Exception as e:
-            print(f"Error evicting lyrics cache: {e}")
+            logger.error("Error evicting lyrics cache: %s", e)
 
     async def search_lyrics(self, song_name: str, artist_name: str) -> list:
         """
@@ -418,10 +434,8 @@ class LyricsService:
             async with httpx.AsyncClient() as client:
                 response = await client.get(
                     f"{self.lrclib_base_url}/search",
-                    params={
-                        "q": f"{song_name} {artist_name}"
-                    },
-                    timeout=10.0
+                    params={"q": f"{song_name} {artist_name}"},
+                    timeout=10.0,
                 )
 
                 if response.status_code == 404:
@@ -433,5 +447,5 @@ class LyricsService:
             return results
 
         except Exception as e:
-            print(f"Error searching lyrics: {e}")
+            logger.error("Error searching lyrics: %s", e)
             return []

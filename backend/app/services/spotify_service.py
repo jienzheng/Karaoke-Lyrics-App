@@ -1,8 +1,9 @@
 """
 Spotify API service for searching songs and managing playback
 """
+
 import httpx
-from typing import List, Optional
+
 from app.models.schemas import Song
 
 
@@ -12,12 +13,7 @@ class SpotifyService:
     def __init__(self):
         self.api_base_url = "https://api.spotify.com/v1"
 
-    async def search_songs(
-        self,
-        query: str,
-        access_token: str,
-        limit: int = 20
-    ) -> List[Song]:
+    async def search_songs(self, query: str, access_token: str, limit: int = 20) -> list[Song]:
         """
         Search for songs on Spotify
 
@@ -29,21 +25,13 @@ class SpotifyService:
         Returns:
             List of Song objects
         """
-        headers = {
-            "Authorization": f"Bearer {access_token}"
-        }
+        headers = {"Authorization": f"Bearer {access_token}"}
 
-        params = {
-            "q": query,
-            "type": "track",
-            "limit": limit
-        }
+        params = {"q": query, "type": "track", "limit": limit}
 
         async with httpx.AsyncClient() as client:
             response = await client.get(
-                f"{self.api_base_url}/search",
-                headers=headers,
-                params=params
+                f"{self.api_base_url}/search", headers=headers, params=params
             )
             response.raise_for_status()
             data = response.json()
@@ -57,13 +45,13 @@ class SpotifyService:
                 album=item["album"]["name"],
                 duration_ms=item["duration_ms"],
                 spotify_uri=item["uri"],
-                image_url=item["album"]["images"][0]["url"] if item["album"]["images"] else None
+                image_url=item["album"]["images"][0]["url"] if item["album"]["images"] else None,
             )
             songs.append(song)
 
         return songs
 
-    async def get_track(self, track_id: str, access_token: str) -> Optional[Song]:
+    async def get_track(self, track_id: str, access_token: str) -> Song | None:
         """
         Get track details by ID
 
@@ -74,15 +62,10 @@ class SpotifyService:
         Returns:
             Song object or None
         """
-        headers = {
-            "Authorization": f"Bearer {access_token}"
-        }
+        headers = {"Authorization": f"Bearer {access_token}"}
 
         async with httpx.AsyncClient() as client:
-            response = await client.get(
-                f"{self.api_base_url}/tracks/{track_id}",
-                headers=headers
-            )
+            response = await client.get(f"{self.api_base_url}/tracks/{track_id}", headers=headers)
 
             if response.status_code == 404:
                 return None
@@ -97,5 +80,5 @@ class SpotifyService:
             album=item["album"]["name"],
             duration_ms=item["duration_ms"],
             spotify_uri=item["uri"],
-            image_url=item["album"]["images"][0]["url"] if item["album"]["images"] else None
+            image_url=item["album"]["images"][0]["url"] if item["album"]["images"] else None,
         )

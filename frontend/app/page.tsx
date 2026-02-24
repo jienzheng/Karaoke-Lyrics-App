@@ -48,8 +48,8 @@ export default function Home() {
       sessionStorage.setItem('user_id', data.user_id)
       sessionStorage.setItem('is_guest', 'true')
       router.push(`/player/${data.session_id}`)
-    } catch (err: any) {
-      setGuestError(err.message || 'Failed to join session')
+    } catch (err: unknown) {
+      setGuestError(err instanceof Error ? err.message : 'Failed to join session')
       setIsJoiningAsGuest(false)
     }
   }

@@ -2,41 +2,8 @@
 
 import { useEffect, useState, useRef } from 'react'
 
-interface SpotifyPlayer {
-  connect(): Promise<boolean>
-  disconnect(): void
-  pause(): Promise<void>
-  resume(): Promise<void>
-  togglePlay(): Promise<void>
-  seek(position_ms: number): Promise<void>
-  setVolume(volume: number): Promise<void>
-  nextTrack(): Promise<void>
-  previousTrack(): Promise<void>
-  getCurrentState(): Promise<SpotifyPlayerState | null>
-  addListener(event: string, callback: (data: any) => void): void
-  removeListener(event: string, callback?: (data: any) => void): void
-}
-
-interface SpotifyPlayerState {
-  position: number
-  duration: number
-  paused: boolean
-  track_window: {
-    current_track: {
-      id: string
-      name: string
-      artists: Array<{ name: string }>
-      album: {
-        name: string
-        images: Array<{ url: string }>
-      }
-      duration_ms: number
-    }
-  }
-}
-
 interface UseSpotifyPlayerReturn {
-  player: SpotifyPlayer | null
+  player: Spotify.Player | null
   deviceId: string | null
   isReady: boolean
   currentPosition: number
@@ -45,13 +12,13 @@ interface UseSpotifyPlayerReturn {
 }
 
 export function useSpotifyPlayer(accessToken: string | null): UseSpotifyPlayerReturn {
-  const [player, setPlayer] = useState<SpotifyPlayer | null>(null)
+  const [player, setPlayer] = useState<Spotify.Player | null>(null)
   const [deviceId, setDeviceId] = useState<string | null>(null)
   const [isReady, setIsReady] = useState(false)
   const [currentPosition, setCurrentPosition] = useState(0)
   const [isPlaying, setIsPlaying] = useState(false)
   const [error, setError] = useState<string | null>(null)
-  const playerRef = useRef<SpotifyPlayer | null>(null)
+  const playerRef = useRef<Spotify.Player | null>(null)
   // Timestamp-based position tracking for accurate lyrics sync
   const playbackRef = useRef<{ position: number; timestamp: number; playing: boolean }>({
     position: 0, timestamp: 0, playing: false,
@@ -65,7 +32,7 @@ export function useSpotifyPlayer(accessToken: string | null): UseSpotifyPlayerRe
       // Don't create a second player if one already exists
       if (playerRef.current) return
 
-      const spotifyPlayer = new (window as any).Spotify.Player({
+      const spotifyPlayer = new window.Spotify.Player({
         name: 'Karaoke Player',
         getOAuthToken: (cb: (token: string) => void) => {
           cb(accessToken)
@@ -73,18 +40,18 @@ export function useSpotifyPlayer(accessToken: string | null): UseSpotifyPlayerRe
         volume: 0.5,
       })
 
-      spotifyPlayer.addListener('ready', ({ device_id }: { device_id: string }) => {
+      spotifyPlayer.addListener('ready', ({ device_id }) => {
         console.log('Spotify player ready with device ID:', device_id)
         setDeviceId(device_id)
         setIsReady(true)
       })
 
-      spotifyPlayer.addListener('not_ready', ({ device_id }: { device_id: string }) => {
+      spotifyPlayer.addListener('not_ready', ({ device_id }) => {
         console.log('Device has gone offline:', device_id)
         setIsReady(false)
       })
 
-      spotifyPlayer.addListener('player_state_changed', (state: SpotifyPlayerState | null) => {
+      spotifyPlayer.addListener('player_state_changed', (state) => {
         if (!state) return
 
         // Record the exact position and wall-clock time for interpolation
@@ -113,22 +80,22 @@ export function useSpotifyPlayer(accessToken: string | null): UseSpotifyPlayerRe
         }
       })
 
-      spotifyPlayer.addListener('initialization_error', ({ message }: { message: string }) => {
+      spotifyPlayer.addListener('initialization_error', ({ message }) => {
         console.error('Initialization error:', message)
         setError(message)
       })
 
-      spotifyPlayer.addListener('authentication_error', ({ message }: { message: string }) => {
+      spotifyPlayer.addListener('authentication_error', ({ message }) => {
         console.error('Authentication error:', message)
         setError(message)
       })
 
-      spotifyPlayer.addListener('account_error', ({ message }: { message: string }) => {
+      spotifyPlayer.addListener('account_error', ({ message }) => {
         console.error('Account error:', message)
         setError(message)
       })
 
-      spotifyPlayer.addListener('playback_error', ({ message }: { message: string }) => {
+      spotifyPlayer.addListener('playback_error', ({ message }) => {
         console.error('Playback error:', message)
         setError(message)
       })
@@ -139,10 +106,10 @@ export function useSpotifyPlayer(accessToken: string | null): UseSpotifyPlayerRe
     }
 
     // If SDK is already loaded, init immediately. Otherwise load the script.
-    if ((window as any).Spotify) {
+    if (window.Spotify) {
       initPlayer()
     } else {
-      (window as any).onSpotifyWebPlaybackSDKReady = initPlayer
+      window.onSpotifyWebPlaybackSDKReady = initPlayer
 
       // Only add the script if it hasn't been added yet
       if (!document.querySelector('script[src="https://sdk.scdn.co/spotify-player.js"]')) {

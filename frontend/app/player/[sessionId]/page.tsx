@@ -6,6 +6,7 @@ import api from '@/lib/api'
 import { useSpotifyPlayer } from '@/hooks/useSpotifyPlayer'
 import {
   Session,
+  Song,
   QueueItemWithDetails,
   PlaybackStateWithDetails,
   Lyrics,
@@ -36,13 +37,13 @@ export default function PlayerPage() {
   const [isLoading, setIsLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
   const [countdown, setCountdown] = useState<number | null>(null)
-  const [countdownSong, setCountdownSong] = useState<any>(null)
+  const [countdownSong, setCountdownSong] = useState<Song | null>(null)
   const [ready, setReady] = useState(false)
 
   // Guest sync state
   const [guestPosition, setGuestPosition] = useState(0)
   const [guestCountdown, setGuestCountdown] = useState<number | null>(null)
-  const [guestCountdownSong, setGuestCountdownSong] = useState<any>(null)
+  const [guestCountdownSong, setGuestCountdownSong] = useState<Song | null>(null)
 
   // Guest users don't init Spotify SDK (pass null token)
   const {
@@ -136,7 +137,7 @@ export default function PlayerPage() {
   const prefetchedLyricsRef = useRef<Record<string, Lyrics>>({})
 
   // Build song metadata object for lyrics API (avoids Spotify token dependency)
-  const buildSongMeta = (song: any) =>
+  const buildSongMeta = (song: Song | null) =>
     song ? { name: song.name, artist: song.artist, album: song.album, duration_ms: song.duration_ms } : undefined
 
   // Fetch lyrics when current song changes (check prefetch cache first)
@@ -345,7 +346,7 @@ export default function PlayerPage() {
   // Countdown helper: shows song info for N seconds, then starts playback.
   // Setting countdownCancelledRef causes the loop to stop early.
   const countdownCancelledRef = useRef(false)
-  const countdownSongRef = useRef<any>(null)
+  const countdownSongRef = useRef<Song | null>(null)
   // Tracks which song URI Spotify currently has loaded — used to decide
   // between startPlayback (new song) vs resumePlayback (pause/unpause).
   const activeSpotifyUriRef = useRef<string | null>(null)
@@ -353,7 +354,7 @@ export default function PlayerPage() {
   // for 10 seconds after to avoid a race with stale SDK position data.
   const playbackStartedAtRef = useRef<number>(0)
 
-  const startWithCountdown = async (song: any) => {
+  const startWithCountdown = async (song: Song) => {
     countdownCancelledRef.current = false
     countdownSongRef.current = song
     setCountdownSong(song)

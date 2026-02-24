@@ -24,7 +24,6 @@ export default function PlayerControls({
   onSeek,
 }: PlayerControlsProps) {
   const [localVolume, setLocalVolume] = useState(volume)
-  const [isDraggingProgress, setIsDraggingProgress] = useState(false)
 
   useEffect(() => {
     setLocalVolume(volume)
@@ -61,10 +60,6 @@ export default function PlayerControls({
             max={durationMs}
             value={currentTimeMs}
             onChange={handleProgressChange}
-            onMouseDown={() => setIsDraggingProgress(true)}
-            onMouseUp={() => setIsDraggingProgress(false)}
-            onTouchStart={() => setIsDraggingProgress(true)}
-            onTouchEnd={() => setIsDraggingProgress(false)}
             className="w-full h-2 bg-gray-700 rounded-lg appearance-none cursor-pointer accent-purple-500"
             style={{
               background: `linear-gradient(to right, #a855f7 0%, #a855f7 ${progressPercentage}%, #374151 ${progressPercentage}%, #374151 100%)`,

@@ -43,6 +43,7 @@ export function formatRelativeTime(date: Date | string): string {
 /**
  * Debounce function to limit how often a function can be called
  */
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
 export function debounce<T extends (...args: any[]) => any>(
   func: T,
   wait: number

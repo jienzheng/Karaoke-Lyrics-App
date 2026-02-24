@@ -1,10 +1,10 @@
-from typing import Optional
 from fastapi import APIRouter, HTTPException, Query, Request
-from app.models.schemas import LyricsRequest, LyricsResponse, Lyrics
+
+from app.models.schemas import LanguageType, LyricsRequest, LyricsResponse
 from app.services.lyrics_service import LyricsService
+from app.services.queue_service import QueueService
 from app.services.romanization_service import RomanizationService
 from app.services.spotify_service import SpotifyService
-from app.services.queue_service import QueueService
 
 router = APIRouter()
 lyrics_service = LyricsService()
@@ -24,7 +24,7 @@ async def fetch_lyrics(request: LyricsRequest):
             song_name=request.song_name,
             artist_name=request.artist_name,
             album_name=request.album_name,
-            duration=request.duration
+            duration=request.duration,
         )
 
         if not lyrics_data:
@@ -32,31 +32,35 @@ async def fetch_lyrics(request: LyricsRequest):
 
         # Detect language and romanize if needed
         romanized_lyrics = None
-        if lyrics_data.language in ["chinese", "japanese", "korean"]:
+        if lyrics_data.language in (
+            LanguageType.CHINESE,
+            LanguageType.JAPANESE,
+            LanguageType.KOREAN,
+        ):
             romanized_lyrics = await romanization_service.romanize_lyrics(lyrics_data)
 
         return LyricsResponse(
             song_id=lyrics_data.song_id,
             original_lyrics=lyrics_data,
             romanized_lyrics=romanized_lyrics,
-            detected_language=lyrics_data.language
+            detected_language=lyrics_data.language,
         )
 
     except HTTPException:
         raise
     except Exception as e:
-        raise HTTPException(status_code=500, detail=f"Failed to fetch lyrics: {str(e)}")
+        raise HTTPException(status_code=500, detail=f"Failed to fetch lyrics: {e!s}")
 
 
 @router.get("/song/{song_id}", response_model=LyricsResponse)
 async def get_lyrics_by_song_id(
     song_id: str,
     request: Request,
-    session_id: Optional[str] = Query(None, description="Session ID (fallback token)"),
-    song_name: Optional[str] = Query(None, description="Song name (avoids Spotify lookup)"),
-    artist_name: Optional[str] = Query(None, description="Artist name (avoids Spotify lookup)"),
-    album_name: Optional[str] = Query(None, description="Album name"),
-    duration: Optional[int] = Query(None, description="Duration in ms"),
+    session_id: str | None = Query(None, description="Session ID (fallback token)"),
+    song_name: str | None = Query(None, description="Song name (avoids Spotify lookup)"),
+    artist_name: str | None = Query(None, description="Artist name (avoids Spotify lookup)"),
+    album_name: str | None = Query(None, description="Album name"),
+    duration: int | None = Query(None, description="Duration in ms"),
 ):
     """
     Get lyrics for a song by Spotify ID.
@@ -123,7 +127,11 @@ async def get_lyrics_by_song_id(
 
         # Romanize if needed
         romanized_lyrics = None
-        if lyrics_data.language in ["chinese", "japanese", "korean"]:
+        if lyrics_data.language in (
+            LanguageType.CHINESE,
+            LanguageType.JAPANESE,
+            LanguageType.KOREAN,
+        ):
             romanized_lyrics = await romanization_service.romanize_lyrics(lyrics_data)
 
         response = LyricsResponse(
@@ -134,21 +142,20 @@ async def get_lyrics_by_song_id(
         )
 
         # Cache for future requests
-        await lyrics_service.cache_lyrics(song_id, response, song_name=track_name, artist_name=track_artist)
+        await lyrics_service.cache_lyrics(
+            song_id, response, song_name=track_name, artist_name=track_artist
+        )
 
         return response
 
     except HTTPException:
         raise
     except Exception as e:
-        raise HTTPException(status_code=500, detail=f"Failed to retrieve lyrics: {str(e)}")
+        raise HTTPException(status_code=500, detail=f"Failed to retrieve lyrics: {e!s}")
 
 
 @router.get("/search")
-async def search_lyrics(
-    song_name: str = Query(...),
-    artist_name: str = Query(...)
-):
+async def search_lyrics(song_name: str = Query(...), artist_name: str = Query(...)):
     """
     Search for lyrics without fetching
     """
@@ -156,4 +163,4 @@ async def search_lyrics(
         results = await lyrics_service.search_lyrics(song_name, artist_name)
         return {"results": results}
     except Exception as e:
-        raise HTTPException(status_code=500, detail=f"Search failed: {str(e)}")
+        raise HTTPException(status_code=500, detail=f"Search failed: {e!s}")

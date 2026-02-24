@@ -1,13 +1,18 @@
 """
 Romanization service - converts Asian languages to romanized form
 """
+
+import logging
 import re
-from typing import Optional
-from pypinyin import pinyin, Style
-from pykakasi import kakasi
+
 from hangul_romanize import Transliter
 from hangul_romanize.rule import academic
-from app.models.schemas import Lyrics, LyricLine, LanguageType
+from pykakasi import kakasi
+from pypinyin import Style, pinyin
+
+from app.models.schemas import LanguageType, LyricLine, Lyrics
+
+logger = logging.getLogger(__name__)
 
 
 class RomanizationService:
@@ -25,9 +30,9 @@ class RomanizationService:
         Detect language of text based on Unicode ranges
         """
         # Count characters in different language ranges
-        chinese_count = len(re.findall(r'[\u4e00-\u9fff]', text))
-        japanese_count = len(re.findall(r'[\u3040-\u309f\u30a0-\u30ff]', text))
-        korean_count = len(re.findall(r'[\uac00-\ud7af]', text))
+        chinese_count = len(re.findall(r"[\u4e00-\u9fff]", text))
+        japanese_count = len(re.findall(r"[\u3040-\u309f\u30a0-\u30ff]", text))
+        korean_count = len(re.findall(r"[\uac00-\ud7af]", text))
 
         total_asian = chinese_count + japanese_count + korean_count
 
@@ -59,10 +64,10 @@ class RomanizationService:
             # Get pinyin with tone marks
             result = pinyin(text, style=Style.TONE, heteronym=False)
             # Flatten and join with spaces
-            romanized = ' '.join([item[0] for item in result])
+            romanized = " ".join([item[0] for item in result])
             return romanized
         except Exception as e:
-            print(f"Error romanizing Chinese: {e}")
+            logger.error("Error romanizing Chinese: %s", e)
             return text
 
     def romanize_japanese(self, text: str) -> str:
@@ -78,10 +83,10 @@ class RomanizationService:
         try:
             result = self.kks.convert(text)
             # Extract the 'hepburn' romanization with spaces between words
-            romanized = ' '.join([item['hepburn'] for item in result])
+            romanized = " ".join([item["hepburn"] for item in result])
             return romanized
         except Exception as e:
-            print(f"Error romanizing Japanese: {e}")
+            logger.error("Error romanizing Japanese: %s", e)
             return text
 
     def romanize_korean(self, text: str) -> str:
@@ -98,9 +103,9 @@ class RomanizationService:
             # Romanize word by word to preserve spacing between Korean words
             words = text.split()
             romanized_words = [self.korean_transliter.translit(word) for word in words]
-            return ' '.join(romanized_words)
+            return " ".join(romanized_words)
         except Exception as e:
-            print(f"Error romanizing Korean: {e}")
+            logger.error("Error romanizing Korean: %s", e)
             return text
 
     async def romanize_text(self, text: str, language: LanguageType) -> str:
@@ -125,7 +130,7 @@ class RomanizationService:
         else:
             raise ValueError(f"Unsupported language: {language}")
 
-    async def romanize_lyrics(self, lyrics: Lyrics) -> Optional[Lyrics]:
+    async def romanize_lyrics(self, lyrics: Lyrics) -> Lyrics | None:
         """
         Romanize entire lyrics object line by line
 
@@ -135,7 +140,11 @@ class RomanizationService:
         Returns:
             New Lyrics object with romanized text
         """
-        if lyrics.language not in [LanguageType.CHINESE, LanguageType.JAPANESE, LanguageType.KOREAN]:
+        if lyrics.language not in [
+            LanguageType.CHINESE,
+            LanguageType.JAPANESE,
+            LanguageType.KOREAN,
+        ]:
             # No romanization needed
             return None
 
@@ -148,7 +157,7 @@ class RomanizationService:
             if lyrics.language == LanguageType.JAPANESE:
                 try:
                     kks_result = self.kks.convert(line.text)
-                    line.text = ' '.join([item['orig'] for item in kks_result])
+                    line.text = " ".join([item["orig"] for item in kks_result])
                 except Exception:
                     pass
 
@@ -157,7 +166,7 @@ class RomanizationService:
                 end_time=line.end_time,
                 text=romanized_text,
                 romanized_text=None,  # Already romanized
-                words=line.words
+                words=line.words,
             )
             romanized_lines.append(romanized_line)
 
@@ -166,7 +175,7 @@ class RomanizationService:
             language=lyrics.language,
             lines=romanized_lines,
             synced=lyrics.synced,
-            source=lyrics.source
+            source=lyrics.source,
         )
 
         return romanized_lyrics

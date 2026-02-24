@@ -1,5 +1,5 @@
-from supabase import create_client, Client
 from app.config import settings
+from supabase import Client, create_client
 
 # Error message when Supabase env is missing or invalid (e.g. on Railway)
 SUPABASE_ENV_HINT = (

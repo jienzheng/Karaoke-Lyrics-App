@@ -1,16 +1,18 @@
-from fastapi import APIRouter, HTTPException, Query, Request
-from typing import List, Optional
 import httpx
+from fastapi import APIRouter, HTTPException, Query, Request
+
 from app.models.schemas import Song
-from app.services.spotify_service import SpotifyService
 from app.services.queue_service import QueueService
+from app.services.spotify_service import SpotifyService
 
 router = APIRouter()
 spotify_service = SpotifyService()
 queue_service = QueueService()
 
 
-def _extract_token(request: Request, access_token: Optional[str] = None, session_id: Optional[str] = None) -> str:
+def _extract_token(
+    request: Request, access_token: str | None = None, session_id: str | None = None
+) -> str:
     """Extract access token from Authorization header, query param, or host token via session_id."""
     if access_token:
         return access_token
@@ -26,24 +28,22 @@ def _extract_token(request: Request, access_token: Optional[str] = None, session
     raise HTTPException(status_code=401, detail="Access token required")
 
 
-@router.get("/search", response_model=List[Song])
+@router.get("/search", response_model=list[Song])
 async def search_songs(
     request: Request,
     q: str = Query(..., description="Search query"),
-    access_token: Optional[str] = Query(None, description="Spotify access token"),
-    session_id: Optional[str] = Query(None, description="Session ID (for guest users)"),
-    limit: int = Query(10, ge=1, le=10, description="Number of results (max 10 for Spotify Dev Mode)")
+    access_token: str | None = Query(None, description="Spotify access token"),
+    session_id: str | None = Query(None, description="Session ID (for guest users)"),
+    limit: int = Query(
+        10, ge=1, le=10, description="Number of results (max 10 for Spotify Dev Mode)"
+    ),
 ):
     """
     Search for songs on Spotify
     """
     try:
         token = _extract_token(request, access_token, session_id)
-        songs = await spotify_service.search_songs(
-            query=q,
-            access_token=token,
-            limit=limit
-        )
+        songs = await spotify_service.search_songs(query=q, access_token=token, limit=limit)
         return songs
     except HTTPException:
         raise
@@ -52,14 +52,14 @@ async def search_songs(
             raise HTTPException(status_code=401, detail="Invalid or expired access token")
         raise HTTPException(status_code=e.response.status_code, detail=str(e))
     except Exception as e:
-        raise HTTPException(status_code=500, detail=f"Search failed: {str(e)}")
+        raise HTTPException(status_code=500, detail=f"Search failed: {e!s}")
 
 
 @router.get("/track/{track_id}", response_model=Song)
 async def get_track(
     request: Request,
     track_id: str,
-    access_token: Optional[str] = Query(None, description="Spotify access token")
+    access_token: str | None = Query(None, description="Spotify access token"),
 ):
     """
     Get track details by ID
@@ -77,4 +77,4 @@ async def get_track(
             raise HTTPException(status_code=401, detail="Invalid or expired access token")
         raise HTTPException(status_code=e.response.status_code, detail=str(e))
     except Exception as e:
-        raise HTTPException(status_code=500, detail=f"Failed to get track: {str(e)}")
+        raise HTTPException(status_code=500, detail=f"Failed to get track: {e!s}")

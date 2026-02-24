@@ -2,9 +2,12 @@
 Spotify authentication service
 Handles OAuth flow, token management, and user profile retrieval
 """
+
 import base64
-import httpx
 from urllib.parse import urlencode
+
+import httpx
+
 from app.config import settings
 
 
@@ -19,7 +22,7 @@ class SpotifyAuthService:
         self.token_url = "https://accounts.spotify.com/api/token"
         self.api_base_url = "https://api.spotify.com/v1"
 
-    def get_auth_url(self, state: str = None) -> str:
+    def get_auth_url(self, state: str | None = None) -> str:
         """
         Generate Spotify authorization URL
 
@@ -35,7 +38,7 @@ class SpotifyAuthService:
             "user-read-playback-state",
             "user-modify-playback-state",
             "streaming",
-            "user-library-read"
+            "user-library-read",
         ]
 
         params = {
@@ -66,14 +69,10 @@ class SpotifyAuthService:
 
         headers = {
             "Authorization": f"Basic {encoded_credentials}",
-            "Content-Type": "application/x-www-form-urlencoded"
+            "Content-Type": "application/x-www-form-urlencoded",
         }
 
-        data = {
-            "grant_type": "authorization_code",
-            "code": code,
-            "redirect_uri": self.redirect_uri
-        }
+        data = {"grant_type": "authorization_code", "code": code, "redirect_uri": self.redirect_uri}
 
         response = httpx.post(self.token_url, headers=headers, data=data)
         response.raise_for_status()
@@ -95,13 +94,10 @@ class SpotifyAuthService:
 
         headers = {
             "Authorization": f"Basic {encoded_credentials}",
-            "Content-Type": "application/x-www-form-urlencoded"
+            "Content-Type": "application/x-www-form-urlencoded",
         }
 
-        data = {
-            "grant_type": "refresh_token",
-            "refresh_token": refresh_token
-        }
+        data = {"grant_type": "refresh_token", "refresh_token": refresh_token}
 
         response = httpx.post(self.token_url, headers=headers, data=data)
         response.raise_for_status()
@@ -118,9 +114,7 @@ class SpotifyAuthService:
         Returns:
             User profile data
         """
-        headers = {
-            "Authorization": f"Bearer {access_token}"
-        }
+        headers = {"Authorization": f"Bearer {access_token}"}
 
         response = httpx.get(f"{self.api_base_url}/me", headers=headers)
         response.raise_for_status()
