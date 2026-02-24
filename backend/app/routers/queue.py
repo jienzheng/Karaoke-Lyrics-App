@@ -1,6 +1,7 @@
 from fastapi import APIRouter, HTTPException, Depends, Query, Request
+from pydantic import BaseModel
 from typing import List
-from app.models.schemas import QueueItem, QueueAddRequest, Song, Session, SessionCreate, SessionJoin
+from app.models.schemas import QueueItem, QueueAddRequest, Song, Session, SessionCreate, SessionJoin, PlaybackStateUpdate, PlaybackStateResponse
 from app.services.queue_service import QueueService
 from app.models.database import get_db
 
@@ -18,7 +19,8 @@ async def create_session(session_data: SessionCreate, user_id: str = Query(...))
     try:
         session = await queue_service.create_session(
             name=session_data.name,
-            host_id=user_id
+            host_id=user_id,
+            refresh_token=session_data.refresh_token,
         )
         return session
     except Exception as e:
@@ -73,6 +75,13 @@ async def add_to_queue(request: Request, request_body: QueueAddRequest, user_id:
         auth_header = request.headers.get("Authorization", "")
         if auth_header.startswith("Bearer "):
             access_token = auth_header[7:]
+
+        # Guest fallback: use host's Spotify token
+        if not access_token:
+            try:
+                access_token = queue_service.get_host_access_token(request_body.session_id)
+            except Exception:
+                pass
 
         queue_item = await queue_service.add_to_queue(
             session_id=request_body.session_id,
@@ -129,6 +138,26 @@ async def reorder_queue(session_id: str, queue_item_id: str = Query(...), new_po
         raise HTTPException(status_code=500, detail=f"Failed to reorder queue: {str(e)}")
 
 
+class ReorderBatchRequest(BaseModel):
+    item_ids: List[str]
+
+
+@router.post("/{session_id}/reorder-batch")
+async def reorder_queue_batch(session_id: str, body: ReorderBatchRequest):
+    """
+    Reorder all queue items at once. Accepts a list of item IDs in desired order.
+    """
+    try:
+        success = await queue_service.reorder_queue_batch(session_id, body.item_ids)
+        if not success:
+            raise HTTPException(status_code=400, detail="Failed to reorder queue")
+        return {"message": "Queue reordered"}
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Failed to reorder queue: {str(e)}")
+
+
 @router.post("/{session_id}/next")
 async def play_next(session_id: str, user_id: str = Query(...)):
     """
@@ -155,3 +184,39 @@ async def get_current_song(session_id: str):
         return current_song
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Failed to get current song: {str(e)}")
+
+
+# ==================== Playback State Sync ====================
+
+@router.put("/{session_id}/playback-state")
+async def update_playback_state(session_id: str, body: PlaybackStateUpdate):
+    """Host reports current playback position so guests can sync lyrics."""
+    try:
+        queue_service.update_playback_state(
+            session_id=session_id,
+            is_playing=body.is_playing,
+            position_ms=body.position_ms,
+            song_id=body.song_id,
+            countdown=body.countdown,
+        )
+        return {"ok": True}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Failed to update playback state: {str(e)}")
+
+
+@router.get("/{session_id}/playback-state")
+async def get_playback_state(session_id: str):
+    """Guests poll for the host's current playback position."""
+    try:
+        state = queue_service.get_playback_state(session_id)
+        if not state:
+            return None
+        return PlaybackStateResponse(
+            is_playing=state["is_playing"],
+            position_ms=state["position_ms"],
+            song_id=state.get("song_id"),
+            countdown=state.get("countdown"),
+            updated_at=state["updated_at"],
+        )
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Failed to get playback state: {str(e)}")

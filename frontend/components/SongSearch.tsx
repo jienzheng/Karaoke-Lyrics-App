@@ -37,7 +37,7 @@ export default function SongSearch({ sessionId, onAddToQueue }: SongSearchProps)
       setIsLoading(true)
       setError(null)
       try {
-        const data = await api.searchSongs(query)
+        const data = await api.searchSongs(query, 10, sessionId)
         setResults(Array.isArray(data) ? data : [])
       } catch (err) {
         setError('Failed to search songs')
@@ -48,7 +48,7 @@ export default function SongSearch({ sessionId, onAddToQueue }: SongSearchProps)
     }, 500)
 
     return () => clearTimeout(timer)
-  }, [query])
+  }, [query, sessionId])
 
   const handleAddToQueue = async (track: Song) => {
     setAddingIds(prev => new Set(prev).add(track.id))

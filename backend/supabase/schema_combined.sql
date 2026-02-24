@@ -1,11 +1,4 @@
 -- Combined Supabase schema for Karaoke Player
--- This merges:
--- - 001_initial_schema.sql
--- - 002_simplified_schema.sql
--- - 003_add_session_code.sql
---
--- It uses the simplified (no RLS) model from 002
--- plus the session code additions from 003.
 -- Run this once in your Supabase project's SQL editor.
 
 -- =========================================
@@ -151,4 +144,36 @@ ALTER TABLE sessions ALTER COLUMN code SET NOT NULL;
 -- Set default for new rows
 ALTER TABLE sessions
 ALTER COLUMN code SET DEFAULT UPPER(SUBSTR(MD5(RANDOM()::TEXT), 1, 6));
+
+
+-- =========================================
+-- GUEST USER SUPPORT
+-- =========================================
+
+-- Flag to distinguish guest users from Spotify-authenticated users
+ALTER TABLE users ADD COLUMN IF NOT EXISTS is_guest BOOLEAN DEFAULT FALSE;
+
+-- Store host's Spotify refresh token so guests can use the host's Spotify account
+ALTER TABLE sessions ADD COLUMN IF NOT EXISTS host_refresh_token TEXT;
+
+-- Track last queue activity for inactivity cleanup
+ALTER TABLE sessions ADD COLUMN IF NOT EXISTS last_activity_at TIMESTAMP WITH TIME ZONE DEFAULT NOW();
+
+
+-- ==================== PLAYBACK STATE TABLE ====================
+-- Stores real-time playback position so guests can sync lyrics with the host.
+-- One row per session, upserted every ~1s by the host's browser.
+CREATE TABLE IF NOT EXISTS playback_state (
+    session_id UUID PRIMARY KEY REFERENCES sessions(id) ON DELETE CASCADE,
+    is_playing BOOLEAN DEFAULT FALSE,
+    position_ms INTEGER DEFAULT 0,
+    song_id VARCHAR(255),
+    countdown INTEGER DEFAULT NULL,  -- null = no countdown, 5..1 = seconds left
+    updated_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
+);
+
+DROP TRIGGER IF EXISTS update_playback_state_updated_at ON playback_state;
+CREATE TRIGGER update_playback_state_updated_at
+    BEFORE UPDATE ON playback_state
+    FOR EACH ROW EXECUTE FUNCTION update_updated_at_column();
 

@@ -23,6 +23,8 @@ export default function PlayerPage() {
   const sessionId = params.sessionId as string
 
   const [accessToken, setAccessToken] = useState<string | null>(null)
+  const [isGuest, setIsGuest] = useState(false)
+  const [userId, setUserId] = useState<string | null>(null)
   const [session, setSession] = useState<Session | null>(null)
   const [queue, setQueue] = useState<QueueItemWithDetails[]>([])
   const [playbackState, setPlaybackState] = useState<PlaybackStateWithDetails | null>(null)
@@ -35,7 +37,14 @@ export default function PlayerPage() {
   const [error, setError] = useState<string | null>(null)
   const [countdown, setCountdown] = useState<number | null>(null)
   const [countdownSong, setCountdownSong] = useState<any>(null)
+  const [ready, setReady] = useState(false)
 
+  // Guest sync state
+  const [guestPosition, setGuestPosition] = useState(0)
+  const [guestCountdown, setGuestCountdown] = useState<number | null>(null)
+  const [guestCountdownSong, setGuestCountdownSong] = useState<any>(null)
+
+  // Guest users don't init Spotify SDK (pass null token)
   const {
     player,
     deviceId,
@@ -43,21 +52,34 @@ export default function PlayerPage() {
     currentPosition,
     isPlaying: playerIsPlaying,
     error: playerError,
-  } = useSpotifyPlayer(accessToken)
+  } = useSpotifyPlayer(isGuest ? null : accessToken)
 
-  // Get access token
+  // Determine if current user is the session host
+  const isHost = !!(session && userId && session.host_id === userId)
+
+  // Get access token / detect guest
+  // sessionStorage is per-tab (guest), localStorage is persistent (host)
   useEffect(() => {
+    const guest = sessionStorage.getItem('is_guest') === 'true'
+    setIsGuest(guest)
+    setUserId(sessionStorage.getItem('user_id') || localStorage.getItem('user_id'))
+    if (guest) {
+      // Guests don't have an access token — that's fine
+      setReady(true)
+      return
+    }
     const token = localStorage.getItem('access_token')
     if (!token) {
       router.push('/')
       return
     }
     setAccessToken(token)
+    setReady(true)
   }, [router])
 
   // Fetch session data
   useEffect(() => {
-    if (!accessToken) return
+    if (!ready) return
 
     const fetchSession = async () => {
       try {
@@ -72,7 +94,7 @@ export default function PlayerPage() {
     }
 
     fetchSession()
-  }, [sessionId, accessToken])
+  }, [sessionId, ready])
 
   // Fetch queue
   const fetchQueue = useCallback(async () => {
@@ -85,11 +107,11 @@ export default function PlayerPage() {
   }, [sessionId])
 
   useEffect(() => {
-    if (!accessToken) return
+    if (!ready) return
     fetchQueue()
     const interval = setInterval(fetchQueue, 5000)
     return () => clearInterval(interval)
-  }, [accessToken, fetchQueue])
+  }, [ready, fetchQueue])
 
   // Fetch playback state
   const fetchPlaybackState = useCallback(async () => {
@@ -102,23 +124,40 @@ export default function PlayerPage() {
   }, [sessionId])
 
   useEffect(() => {
-    if (!accessToken) return
+    if (!ready) return
     fetchPlaybackState()
-    const interval = setInterval(fetchPlaybackState, 2000)
+    // Host has SDK — poll less often. Guests get position from sync endpoint,
+    // this poll just provides current_song metadata for lyrics/display.
+    const interval = setInterval(fetchPlaybackState, isHost ? 5000 : 3000)
     return () => clearInterval(interval)
-  }, [accessToken, fetchPlaybackState])
+  }, [ready, fetchPlaybackState, isHost])
 
-  // Fetch lyrics when current song changes
+  // Pre-fetched lyrics cache: songId -> Lyrics
+  const prefetchedLyricsRef = useRef<Record<string, Lyrics>>({})
+
+  // Build song metadata object for lyrics API (avoids Spotify token dependency)
+  const buildSongMeta = (song: any) =>
+    song ? { name: song.name, artist: song.artist, album: song.album, duration_ms: song.duration_ms } : undefined
+
+  // Fetch lyrics when current song changes (check prefetch cache first)
   useEffect(() => {
-    const songId = playbackState?.current_song?.spotify_id || playbackState?.current_song?.id
+    const song = playbackState?.current_song
+    const songId = song?.id
     if (!songId) {
       setLyrics(null)
       return
     }
 
+    // Check prefetch cache first
+    if (prefetchedLyricsRef.current[songId]) {
+      setLyrics(prefetchedLyricsRef.current[songId])
+      delete prefetchedLyricsRef.current[songId]
+      return
+    }
+
     const fetchLyrics = async () => {
       try {
-        const lyricsData = await api.getSongLyrics(songId)
+        const lyricsData = await api.getSongLyrics(songId, sessionId, buildSongMeta(song))
         setLyrics(lyricsData)
       } catch (err) {
         console.error('Failed to fetch lyrics:', err)
@@ -129,13 +168,51 @@ export default function PlayerPage() {
     fetchLyrics()
   }, [playbackState?.current_song])
 
-  // Auto-advance: detect when song ends and trigger skip with countdown
+  // Pre-fetch lyrics for the next song in queue
+  const prefetchingRef = useRef<string | null>(null)
+  useEffect(() => {
+    if (!queue.length) return
+
+    // Find the next song that isn't currently playing
+    const currentSongId = playbackState?.current_song?.id
+    const nextItem = currentSongId
+      ? queue.find((item) => item.song.id !== currentSongId)
+      : queue[0]
+
+    if (!nextItem) return
+    const nextSongId = nextItem.song.id
+
+    // Skip if already prefetched or currently prefetching
+    if (prefetchedLyricsRef.current[nextSongId] || prefetchingRef.current === nextSongId) return
+
+    prefetchingRef.current = nextSongId
+    api.getSongLyrics(nextSongId, sessionId, buildSongMeta(nextItem.song))
+      .then((lyricsData) => {
+        if (lyricsData) {
+          prefetchedLyricsRef.current[nextSongId] = lyricsData
+        }
+      })
+      .catch(() => {
+        // Silent failure — lyrics will be fetched normally when song plays
+      })
+      .finally(() => {
+        if (prefetchingRef.current === nextSongId) {
+          prefetchingRef.current = null
+        }
+      })
+  }, [queue, playbackState?.current_song])
+
+  // Auto-advance: detect when song ends and trigger skip with countdown (host only)
   const isAdvancingRef = useRef(false)
 
   useEffect(() => {
+    if (!isHost) return
     const durationMs = playbackState?.current_song?.duration_ms
     if (!playbackState?.current_song || !playerIsPlaying || !durationMs) return
     if (isAdvancingRef.current || countdown !== null) return
+    // Suppress auto-advance for 10s after a play/skip to avoid stale SDK
+    // position data from the previous song triggering an immediate skip.
+    if (Date.now() - playbackStartedAtRef.current < 10000) return
 
     if (currentPosition >= durationMs - 1000) {
       isAdvancingRef.current = true
@@ -143,20 +220,157 @@ export default function PlayerPage() {
         isAdvancingRef.current = false
       })
     }
-  }, [currentPosition, playerIsPlaying, playbackState?.current_song, countdown])
+  }, [currentPosition, playerIsPlaying, playbackState?.current_song, countdown, isHost])
 
-  // Countdown helper: shows song info for 5 seconds, then starts playback
+  // --- Host: report playback position to DB every 1s ---
+  // Use refs so the single stable interval always reads fresh values
+  // without tearing down/recreating on every state change.
+  const currentPositionRef = useRef(0)
+  currentPositionRef.current = currentPosition
+  const playerIsPlayingRef = useRef(false)
+  playerIsPlayingRef.current = playerIsPlaying
+  const countdownRef = useRef<number | null>(null)
+  countdownRef.current = countdown
+  const currentSongIdRef = useRef<string | null>(null)
+  currentSongIdRef.current = playbackState?.current_song?.id ?? null
+
+  useEffect(() => {
+    if (!isHost || !session) return
+
+    const report = () => {
+      api.updatePlaybackState(sessionId, {
+        is_playing: playerIsPlayingRef.current,
+        position_ms: currentPositionRef.current,
+        song_id: currentSongIdRef.current,
+        countdown: countdownRef.current,
+      }).catch(() => {})
+    }
+
+    // Single stable interval — reads current values from refs each tick
+    report()
+    const interval = setInterval(report, 1000)
+    return () => clearInterval(interval)
+  }, [isHost, session, sessionId])
+
+  // --- Guest: poll playback state + rAF interpolation ---
+  const queueRef = useRef(queue)
+  queueRef.current = queue
+  const guestSyncRef = useRef<{
+    basePos: number
+    baseTime: number
+    isPlaying: boolean
+    songId: string | null
+    durationMs: number
+  }>({ basePos: 0, baseTime: 0, isPlaying: false, songId: null, durationMs: 0 })
+  const guestRafRef = useRef<number>(0)
+  const lastGuestSongIdRef = useRef<string | null>(null)
+
+  useEffect(() => {
+    if (isHost || !ready) return
+
+    let cancelled = false
+
+    const poll = async () => {
+      try {
+        const state = await api.getPlaybackStateSync(sessionId)
+        if (cancelled || !state) return
+
+        const serverAge = Date.now() - new Date(state.updated_at).getTime()
+        const adjustedPos = state.is_playing
+          ? state.position_ms + Math.max(0, serverAge)
+          : state.position_ms
+
+        // Use ref to read queue without needing it as a dependency
+        const currentQueue = queueRef.current
+        const songDuration =
+          currentQueue.find((q) => q.song.id === state.song_id)?.song.duration_ms ?? Infinity
+
+        // Detect song change → eagerly refresh metadata so lyrics load faster
+        if (state.song_id && state.song_id !== lastGuestSongIdRef.current) {
+          lastGuestSongIdRef.current = state.song_id
+          fetchPlaybackState() // fire-and-forget — updates playbackState.current_song
+        }
+
+        guestSyncRef.current = {
+          basePos: adjustedPos,
+          baseTime: performance.now(),
+          isPlaying: state.is_playing,
+          songId: state.song_id,
+          durationMs: songDuration,
+        }
+        setGuestPosition(Math.min(adjustedPos, songDuration))
+
+        // Countdown
+        setGuestCountdown(state.countdown)
+        if (state.countdown !== null) {
+          const nextInQueue = currentQueue[0]?.song ?? null
+          setGuestCountdownSong(nextInQueue)
+        } else {
+          setGuestCountdownSong(null)
+        }
+      } catch {
+        // silent — next poll will retry
+      }
+    }
+
+    poll()
+    const interval = setInterval(poll, 1000)
+
+    // rAF interpolation loop — throttled to ~20fps to avoid excessive re-renders
+    let lastSetTime = 0
+    const tick = () => {
+      if (cancelled) return
+      const s = guestSyncRef.current
+      if (s.isPlaying) {
+        const now = performance.now()
+        if (now - lastSetTime > 50) {
+          const elapsed = now - s.baseTime
+          const pos = Math.min(s.basePos + elapsed, s.durationMs)
+          setGuestPosition(pos)
+          lastSetTime = now
+        }
+      }
+      guestRafRef.current = requestAnimationFrame(tick)
+    }
+    guestRafRef.current = requestAnimationFrame(tick)
+
+    return () => {
+      cancelled = true
+      clearInterval(interval)
+      cancelAnimationFrame(guestRafRef.current)
+    }
+  }, [isHost, ready, sessionId]) // No `queue` — uses queueRef instead
+
+  // Countdown helper: shows song info for N seconds, then starts playback.
+  // Setting countdownCancelledRef causes the loop to stop early.
+  const countdownCancelledRef = useRef(false)
+  const countdownSongRef = useRef<any>(null)
+  // Tracks which song URI Spotify currently has loaded — used to decide
+  // between startPlayback (new song) vs resumePlayback (pause/unpause).
+  const activeSpotifyUriRef = useRef<string | null>(null)
+  // Wall-clock time of the last play/skip action — auto-advance is suppressed
+  // for 10 seconds after to avoid a race with stale SDK position data.
+  const playbackStartedAtRef = useRef<number>(0)
+
   const startWithCountdown = async (song: any) => {
+    countdownCancelledRef.current = false
+    countdownSongRef.current = song
     setCountdownSong(song)
     for (let i = 5; i >= 1; i--) {
+      if (countdownCancelledRef.current) break
       setCountdown(i)
       await new Promise((r) => setTimeout(r, 1000))
     }
+    // If cancelled, handlePlayPause already started playback directly
+    if (countdownCancelledRef.current) return
     setCountdown(null)
     setCountdownSong(null)
+    countdownSongRef.current = null
     // Now actually play
     if (song?.spotify_uri) {
+      playbackStartedAtRef.current = Date.now()
       await api.startPlayback(song.spotify_uri, deviceId)
+      activeSpotifyUriRef.current = song.spotify_uri
     }
   }
 
@@ -168,18 +382,44 @@ export default function PlayerPage() {
         return
       }
 
-      // If there's already a current song, resume from current position
+      // During countdown: cancel it and start the song immediately
+      if (countdown !== null && countdownSongRef.current) {
+        const song = countdownSongRef.current
+        countdownCancelledRef.current = true
+        // Clear countdown UI immediately
+        setCountdown(null)
+        setCountdownSong(null)
+        countdownSongRef.current = null
+        // Start playback directly
+        if (song?.spotify_uri) {
+          playbackStartedAtRef.current = Date.now()
+          await api.startPlayback(song.spotify_uri, deviceId)
+          activeSpotifyUriRef.current = song.spotify_uri
+        }
+        return
+      }
+
+      // If there's already a current song, start or resume it
       const currentSong = playbackState?.current_song
       if (currentSong?.spotify_uri) {
-        await api.resumePlayback(deviceId)
+        playbackStartedAtRef.current = Date.now()
+        if (activeSpotifyUriRef.current === currentSong.spotify_uri) {
+          // Same song Spotify already has loaded — resume to keep position
+          await api.resumePlayback(deviceId)
+        } else {
+          // Different song (e.g. after skip) — start fresh
+          await api.startPlayback(currentSong.spotify_uri, deviceId)
+          activeSpotifyUriRef.current = currentSong.spotify_uri
+        }
         return
       }
 
       // No current song — advance queue to first song, countdown, then play
       const result = await api.skipSong(sessionId)
       const nextSong = result?.current_song?.song
-      await fetchQueue()
-      await fetchPlaybackState()
+      // Refresh in background — don't block countdown
+      fetchQueue()
+      fetchPlaybackState()
       if (nextSong) {
         await startWithCountdown(nextSong)
       }
@@ -191,10 +431,14 @@ export default function PlayerPage() {
   const handleSkip = async () => {
     try {
       await api.pausePlayback()
+      activeSpotifyUriRef.current = null
+      playbackStartedAtRef.current = Date.now()
+      setLyrics(null)
       const result = await api.skipSong(sessionId)
       const nextSong = result?.current_song?.song
-      await fetchQueue()
-      await fetchPlaybackState()
+      // Refresh queue/playback in background — don't block countdown
+      fetchQueue()
+      fetchPlaybackState()
       if (nextSong) {
         await startWithCountdown(nextSong)
       }
@@ -235,18 +479,18 @@ export default function PlayerPage() {
     }
   }
 
-  const handleReorderQueue = async (queueItemId: string, direction: 'up' | 'down') => {
-    const itemIndex = queue.findIndex((item) => item.id === queueItemId)
-    if (itemIndex === -1) return
-
-    const newPosition = direction === 'up' ? itemIndex - 1 : itemIndex + 1
-    if (newPosition < 0 || newPosition >= queue.length) return
+  const handleReorderQueue = async (orderedIds: string[]) => {
+    // Optimistically reorder local state
+    const reordered = orderedIds
+      .map((id) => queue.find((item) => item.id === id))
+      .filter(Boolean) as QueueItemWithDetails[]
+    setQueue(reordered)
 
     try {
-      await api.reorderQueue(sessionId, queueItemId, newPosition)
-      await fetchQueue()
+      await api.reorderQueueBatch(sessionId, orderedIds)
     } catch (err) {
       console.error('Failed to reorder queue:', err)
+      await fetchQueue()
     }
   }
 
@@ -461,12 +705,12 @@ export default function PlayerPage() {
             <div className="flex-1 min-h-0 overflow-hidden relative">
               <LyricsDisplay
                 lyrics={lyrics}
-                currentTimeMs={currentPosition}
+                currentTimeMs={isHost ? currentPosition : guestPosition}
                 displayMode={displayMode}
-                countdownSeconds={countdown ?? 0}
-                countdownSong={countdownSong}
+                countdownSeconds={isHost ? (countdown ?? 0) : (guestCountdown ?? 0)}
+                countdownSong={isHost ? countdownSong : guestCountdownSong}
                 status={
-                  countdown !== null
+                  (isHost ? countdown : guestCountdown) !== null
                     ? 'countdown'
                     : queue.length === 0 && !playbackState?.current_song
                     ? 'empty_queue'
@@ -477,8 +721,8 @@ export default function PlayerPage() {
                     : 'playing'
                 }
               />
-              {/* "Next song" banner — slides across bottom when ≤20s remaining */}
-              {(() => {
+              {/* "Next song" banner — slides across bottom when ≤20s remaining (host only) */}
+              {isHost && (() => {
                 const durationMs = playbackState?.current_song?.duration_ms ?? 0
                 const timeLeft = durationMs - currentPosition
                 const nextSong = queue[0]
@@ -497,42 +741,59 @@ export default function PlayerPage() {
             </div>
 
             {/* Controls + compact song info */}
-            <div className="flex-shrink-0 bg-black/30 backdrop-blur-sm border-t border-white/10">
-              {/* Compact now-playing bar */}
-              {playbackState?.current_song && countdown === null && (
-                <div className="flex items-center justify-center gap-3 px-4 pt-3">
-                  <span className="text-sm font-semibold text-white truncate">
-                    {playbackState.current_song.name}
-                  </span>
-                  <span className="text-sm text-gray-500">—</span>
-                  <span className="text-sm text-gray-400 truncate">
-                    {playbackState.current_song.artist}
-                  </span>
+            {!isHost ? (
+              /* Non-host: show compact now-playing info bar only */
+              playbackState?.current_song && (
+                <div className="flex-shrink-0 bg-black/30 backdrop-blur-sm border-t border-white/10">
+                  <div className="flex items-center justify-center gap-3 px-4 py-3">
+                    <span className="text-sm font-semibold text-white truncate">
+                      {playbackState.current_song.name}
+                    </span>
+                    <span className="text-sm text-gray-500">—</span>
+                    <span className="text-sm text-gray-400 truncate">
+                      {playbackState.current_song.artist}
+                    </span>
+                  </div>
                 </div>
-              )}
-              <div className="p-4 md:p-6">
-                <PlayerControls
-                  isPlaying={playerIsPlaying}
-                  currentTimeMs={currentPosition}
-                  durationMs={playbackState?.current_song?.duration_ms || 0}
-                  volume={volume}
-                  onPlayPause={handlePlayPause}
-                  onSkip={handleSkip}
-                  onVolumeChange={handleVolumeChange}
-                  onSeek={handleSeek}
-                />
+              )
+            ) : (
+              <div className="flex-shrink-0 bg-black/30 backdrop-blur-sm border-t border-white/10">
+                {/* Compact now-playing bar */}
+                {playbackState?.current_song && countdown === null && (
+                  <div className="flex items-center justify-center gap-3 px-4 pt-3">
+                    <span className="text-sm font-semibold text-white truncate">
+                      {playbackState.current_song.name}
+                    </span>
+                    <span className="text-sm text-gray-500">—</span>
+                    <span className="text-sm text-gray-400 truncate">
+                      {playbackState.current_song.artist}
+                    </span>
+                  </div>
+                )}
+                <div className="p-4 md:p-6">
+                  <PlayerControls
+                    isPlaying={playerIsPlaying}
+                    currentTimeMs={currentPosition}
+                    durationMs={playbackState?.current_song?.duration_ms || 0}
+                    volume={volume}
+                    onPlayPause={handlePlayPause}
+                    onSkip={handleSkip}
+                    onVolumeChange={handleVolumeChange}
+                    onSeek={handleSeek}
+                  />
+                </div>
               </div>
-            </div>
+            )}
           </div>
         </div>
 
-        {/* Player Status */}
-        {!isReady && deviceId && (
+        {/* Player Status (host only) */}
+        {isHost && !isReady && deviceId && (
           <div className="absolute bottom-4 left-4 px-4 py-2 bg-yellow-600/90 rounded-lg text-sm">
             Connecting to Spotify...
           </div>
         )}
-        {playerError && (
+        {isHost && playerError && (
           <div className="absolute bottom-4 left-4 px-4 py-2 bg-red-600/90 rounded-lg text-sm">
             Player Error: {playerError}
           </div>

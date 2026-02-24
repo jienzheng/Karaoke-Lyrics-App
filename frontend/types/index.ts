@@ -5,6 +5,7 @@ export interface User {
   display_name: string
   email: string
   profile_image_url?: string
+  is_guest?: boolean
   created_at: string
 }
 
@@ -69,6 +70,7 @@ export interface QueueItem {
   id: string
   song: Song
   added_by: string
+  added_by_name?: string
   added_at: string
   position: number
 }
@@ -81,7 +83,7 @@ export interface PlaybackState {
   current_song_id?: string
   is_playing: boolean
   position_ms: number
-  updated_at: string
+  updated_at?: string
 }
 
 export interface PlaybackStateWithDetails extends PlaybackState {

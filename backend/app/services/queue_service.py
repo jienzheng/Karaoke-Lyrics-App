@@ -1,13 +1,20 @@
 """
 Queue service - manages karaoke sessions and song queues
 """
+import asyncio
+import logging
 import random
 import string
-from typing import Optional, List
-from datetime import datetime
-from app.models.schemas import Session, QueueItem, Song, LyricsDisplayMode
+from typing import Optional, List, Dict
+from datetime import datetime, timedelta
+from app.models.schemas import Session, QueueItem, Song, LyricsDisplayMode, LyricsResponse
 from app.models.database import get_db
 from app.services.spotify_service import SpotifyService
+from app.services.spotify_auth import SpotifyAuthService
+from app.services.lyrics_service import LyricsService
+from app.services.romanization_service import RomanizationService
+
+logger = logging.getLogger(__name__)
 
 
 class QueueService:
@@ -15,27 +22,59 @@ class QueueService:
 
     def __init__(self):
         self.spotify_service = SpotifyService()
+        self.spotify_auth = SpotifyAuthService()
+        self.lyrics_service = LyricsService()
+        self.romanization_service = RomanizationService()
 
     @staticmethod
     def _generate_code(length: int = 6) -> str:
         """Generate a random alphanumeric session code"""
         return ''.join(random.choices(string.ascii_uppercase + string.digits, k=length))
 
-    async def create_session(self, name: str, host_id: str) -> Session:
+    @staticmethod
+    def _resolve_display_names(user_ids: List[str]) -> Dict[str, str]:
+        """Batch-resolve user UUIDs to display names."""
+        if not user_ids:
+            return {}
+        db = get_db()
+        result = db.table("users").select("id, display_name").in_("id", list(set(user_ids))).execute()
+        return {row["id"]: row["display_name"] for row in (result.data or [])}
+
+    @staticmethod
+    def _update_last_activity(session_id: str) -> None:
+        """Update last_activity_at timestamp on a session."""
+        db = get_db()
+        db.table("sessions").update({"last_activity_at": datetime.utcnow().isoformat()}).eq("id", session_id).execute()
+
+    def get_host_access_token(self, session_id: str) -> str:
+        """Get a fresh Spotify access token for the session host."""
+        db = get_db()
+        result = db.table("sessions").select("host_refresh_token").eq("id", session_id).execute()
+        if not result.data or not result.data[0].get("host_refresh_token"):
+            raise Exception("No host refresh token found for session")
+        refresh_token = result.data[0]["host_refresh_token"]
+        token_data = self.spotify_auth.refresh_access_token(refresh_token)
+        return token_data["access_token"]
+
+    async def create_session(self, name: str, host_id: str, refresh_token: Optional[str] = None) -> Session:
         """
         Create a new karaoke session
         """
         db = get_db()
         code = self._generate_code()
 
-        # Insert session
-        result = db.table("sessions").insert({
+        insert_data = {
             "name": name,
             "host_id": host_id,
             "code": code,
             "is_active": True,
-            "lyrics_display_mode": "both"
-        }).execute()
+            "lyrics_display_mode": "both",
+        }
+        if refresh_token:
+            insert_data["host_refresh_token"] = refresh_token
+
+        # Insert session
+        result = db.table("sessions").insert(insert_data).execute()
 
         if not result.data:
             raise Exception("Failed to create session")
@@ -166,13 +205,66 @@ class QueueService:
 
         item_data = result.data[0]
 
+        # Update session activity timestamp
+        self._update_last_activity(session_id)
+
+        # Pre-fetch lyrics in the background so they're cached when the song plays
+        asyncio.create_task(self._prefetch_lyrics(song))
+
+        names = self._resolve_display_names([user_id])
+
         return QueueItem(
             id=item_data["id"],
             song=song,
             added_by=item_data["added_by"],
+            added_by_name=names.get(user_id),
             added_at=datetime.fromisoformat(item_data["created_at"]),
             position=item_data["position"]
         )
+
+    async def _prefetch_lyrics(self, song: Song) -> None:
+        """Pre-fetch and cache lyrics for a song in the background."""
+        try:
+            # Skip if already cached
+            cached = await self.lyrics_service.get_cached_lyrics(song.id)
+            if cached:
+                logger.info("Pre-fetch: lyrics already cached for %s", song.name)
+                return
+
+            logger.info("Pre-fetching lyrics for %s - %s", song.name, song.artist)
+
+            lyrics_data = await self.lyrics_service.fetch_lyrics(
+                song_name=song.name,
+                artist_name=song.artist,
+                album_name=song.album,
+                duration=song.duration_ms // 1000 if song.duration_ms else None,
+            )
+
+            if not lyrics_data:
+                logger.info("Pre-fetch: no lyrics found for %s", song.name)
+                return
+
+            lyrics_data.song_id = song.id
+
+            # Romanize if CJK
+            romanized_lyrics = None
+            if lyrics_data.language in ["chinese", "japanese", "korean"]:
+                romanized_lyrics = await self.romanization_service.romanize_lyrics(lyrics_data)
+
+            response = LyricsResponse(
+                song_id=song.id,
+                original_lyrics=lyrics_data,
+                romanized_lyrics=romanized_lyrics,
+                detected_language=lyrics_data.language,
+            )
+
+            await self.lyrics_service.cache_lyrics(
+                song.id, response, song_name=song.name, artist_name=song.artist
+            )
+            logger.info("Pre-fetch: lyrics cached for %s", song.name)
+
+        except Exception as e:
+            logger.warning("Pre-fetch lyrics failed for %s: %s", song.name, e)
 
     async def get_queue(self, session_id: str) -> List[QueueItem]:
         """
@@ -185,6 +277,12 @@ class QueueService:
             .eq("session_id", session_id) \
             .order("position") \
             .execute()
+
+        if not result.data:
+            return []
+
+        user_ids = [item["added_by"] for item in result.data]
+        names = self._resolve_display_names(user_ids)
 
         queue_items = []
         for item_data in result.data:
@@ -202,6 +300,7 @@ class QueueService:
                 id=item_data["id"],
                 song=song,
                 added_by=item_data["added_by"],
+                added_by_name=names.get(item_data["added_by"]),
                 added_at=datetime.fromisoformat(item_data["created_at"]),
                 position=item_data["position"]
             )
@@ -233,6 +332,9 @@ class QueueService:
 
         # Delete the item
         db.table("queue_items").delete().eq("id", queue_item_id).execute()
+
+        # Update session activity timestamp
+        self._update_last_activity(item["session_id"])
 
         return True
 
@@ -285,10 +387,13 @@ class QueueService:
             image_url=next_item["image_url"]
         )
 
+        names = self._resolve_display_names([next_item["added_by"]])
+
         return QueueItem(
             id=next_item["id"],
             song=song,
             added_by=next_item["added_by"],
+            added_by_name=names.get(next_item["added_by"]),
             added_at=datetime.fromisoformat(next_item["created_at"]),
             position=next_item["position"]
         )
@@ -351,10 +456,92 @@ class QueueService:
             image_url=item_data["image_url"]
         )
 
+        names = self._resolve_display_names([item_data["added_by"]])
+
         return QueueItem(
             id=item_data["id"],
             song=song,
             added_by=item_data["added_by"],
+            added_by_name=names.get(item_data["added_by"]),
             added_at=datetime.fromisoformat(item_data["created_at"]),
             position=item_data["position"]
         )
+
+    async def reorder_queue_batch(self, session_id: str, item_ids: List[str]) -> bool:
+        """
+        Reorder queue items by assigning positions 0, 1, 2, ... to the given item IDs.
+        """
+        db = get_db()
+
+        for position, item_id in enumerate(item_ids):
+            db.table("queue_items") \
+                .update({"position": position}) \
+                .eq("id", item_id) \
+                .eq("session_id", session_id) \
+                .execute()
+
+        return True
+
+    def update_playback_state(
+        self,
+        session_id: str,
+        is_playing: bool,
+        position_ms: int,
+        song_id: Optional[str] = None,
+        countdown: Optional[int] = None,
+    ) -> None:
+        """Upsert playback position so guests can sync lyrics."""
+        db = get_db()
+        row = {
+            "session_id": session_id,
+            "is_playing": is_playing,
+            "position_ms": position_ms,
+            "song_id": song_id,
+            "countdown": countdown,
+            "updated_at": datetime.utcnow().isoformat(),
+        }
+        db.table("playback_state").upsert(row, on_conflict="session_id").execute()
+        if is_playing:
+            self._update_last_activity(session_id)
+
+    @staticmethod
+    def get_playback_state(session_id: str) -> Optional[Dict]:
+        """Return the current playback state row for a session, or None."""
+        db = get_db()
+        result = db.table("playback_state").select("*").eq("session_id", session_id).execute()
+        if not result.data:
+            return None
+        return result.data[0]
+
+    @staticmethod
+    async def cleanup_inactive_sessions() -> int:
+        """
+        Delete active sessions that have had no queue activity for 30+ minutes
+        and currently have an empty queue. Returns the number of sessions deleted.
+        """
+        db = get_db()
+        cutoff = (datetime.utcnow() - timedelta(minutes=5)).isoformat()
+
+        # Find active sessions where last_activity_at is older than cutoff
+        stale = db.table("sessions") \
+            .select("id") \
+            .eq("is_active", True) \
+            .lt("last_activity_at", cutoff) \
+            .execute()
+
+        if not stale.data:
+            return 0
+
+        deleted = 0
+        for session in stale.data:
+            # Check if queue is empty
+            queue_count = db.table("queue_items") \
+                .select("id", count="exact") \
+                .eq("session_id", session["id"]) \
+                .execute()
+            if queue_count.count == 0:
+                db.table("sessions").delete().eq("id", session["id"]).execute()
+                deleted += 1
+                logger.info("Cleaned up inactive session %s", session["id"])
+
+        return deleted

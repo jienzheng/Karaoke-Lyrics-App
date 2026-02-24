@@ -1,13 +1,16 @@
+from typing import Optional
 from fastapi import APIRouter, HTTPException, Query, Request
 from app.models.schemas import LyricsRequest, LyricsResponse, Lyrics
 from app.services.lyrics_service import LyricsService
 from app.services.romanization_service import RomanizationService
 from app.services.spotify_service import SpotifyService
+from app.services.queue_service import QueueService
 
 router = APIRouter()
 lyrics_service = LyricsService()
 romanization_service = RomanizationService()
 spotify_service = SpotifyService()
+queue_service = QueueService()
 
 
 @router.post("/fetch", response_model=LyricsResponse)
@@ -46,10 +49,19 @@ async def fetch_lyrics(request: LyricsRequest):
 
 
 @router.get("/song/{song_id}", response_model=LyricsResponse)
-async def get_lyrics_by_song_id(song_id: str, request: Request):
+async def get_lyrics_by_song_id(
+    song_id: str,
+    request: Request,
+    session_id: Optional[str] = Query(None, description="Session ID (fallback token)"),
+    song_name: Optional[str] = Query(None, description="Song name (avoids Spotify lookup)"),
+    artist_name: Optional[str] = Query(None, description="Artist name (avoids Spotify lookup)"),
+    album_name: Optional[str] = Query(None, description="Album name"),
+    duration: Optional[int] = Query(None, description="Duration in ms"),
+):
     """
     Get lyrics for a song by Spotify ID.
-    Checks cache first, then fetches from Spotify + LRCLIB.
+    Checks cache first, then fetches from LRCLIB.
+    If song_name/artist_name are provided, skips the Spotify API call entirely.
     """
     try:
         # Check cache first
@@ -57,26 +69,50 @@ async def get_lyrics_by_song_id(song_id: str, request: Request):
         if cached:
             return cached
 
-        # Extract Bearer token to fetch track info from Spotify
-        access_token = None
-        auth_header = request.headers.get("Authorization", "")
-        if auth_header.startswith("Bearer "):
-            access_token = auth_header[7:]
+        # Resolve song metadata — prefer query params (no token needed)
+        track_name = song_name
+        track_artist = artist_name
+        track_album = album_name
+        track_duration = duration // 1000 if duration else None
 
-        if not access_token:
-            raise HTTPException(status_code=401, detail="Access token required to fetch lyrics")
+        # Fall back to Spotify API if metadata not provided
+        if not track_name or not track_artist:
+            access_token = None
+            auth_header = request.headers.get("Authorization", "")
+            if auth_header.startswith("Bearer "):
+                access_token = auth_header[7:]
 
-        # Get track details from Spotify
-        track = await spotify_service.get_track(song_id, access_token)
-        if not track:
-            raise HTTPException(status_code=404, detail="Track not found on Spotify")
+            track = None
+            if access_token:
+                try:
+                    track = await spotify_service.get_track(song_id, access_token)
+                except Exception:
+                    pass
+
+            if not track and session_id:
+                try:
+                    fresh_token = queue_service.get_host_access_token(session_id)
+                    track = await spotify_service.get_track(song_id, fresh_token)
+                except Exception:
+                    pass
+
+            if not track:
+                raise HTTPException(
+                    status_code=404,
+                    detail="Could not resolve song metadata. Pass song_name and artist_name params or a valid token.",
+                )
+
+            track_name = track.name
+            track_artist = track.artist
+            track_album = track.album
+            track_duration = track.duration_ms // 1000 if track.duration_ms else None
 
         # Fetch lyrics from LRCLIB
         lyrics_data = await lyrics_service.fetch_lyrics(
-            song_name=track.name,
-            artist_name=track.artist,
-            album_name=track.album,
-            duration=track.duration_ms // 1000 if track.duration_ms else None,
+            song_name=track_name,
+            artist_name=track_artist,
+            album_name=track_album,
+            duration=track_duration,
         )
 
         if not lyrics_data:
@@ -98,7 +134,7 @@ async def get_lyrics_by_song_id(song_id: str, request: Request):
         )
 
         # Cache for future requests
-        await lyrics_service.cache_lyrics(song_id, response, song_name=track.name, artist_name=track.artist)
+        await lyrics_service.cache_lyrics(song_id, response, song_name=track_name, artist_name=track_artist)
 
         return response
 

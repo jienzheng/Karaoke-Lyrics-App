@@ -15,6 +15,12 @@ export default function Dashboard() {
   const apiUrl = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000'
 
   useEffect(() => {
+    // Guests should not access the dashboard
+    if (sessionStorage.getItem('is_guest') === 'true') {
+      router.push('/')
+      return
+    }
+
     const token = localStorage.getItem('access_token')
     if (!token) {
       router.push('/')
@@ -40,10 +46,14 @@ export default function Dashboard() {
     try {
       const token = localStorage.getItem('access_token')
       const userId = localStorage.getItem('user_id')
+      const refreshToken = localStorage.getItem('refresh_token')
       const res = await fetch(`${apiUrl}/api/queue/session/create?user_id=${userId}`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
-        body: JSON.stringify({ name: sessionName || 'Karaoke Session' }),
+        body: JSON.stringify({
+          name: sessionName || 'Karaoke Session',
+          refresh_token: refreshToken || undefined,
+        }),
       })
       if (!res.ok) throw new Error('Failed to create session')
       const session = await res.json()
@@ -79,6 +89,7 @@ export default function Dashboard() {
     localStorage.removeItem('access_token')
     localStorage.removeItem('refresh_token')
     localStorage.removeItem('user_id')
+    sessionStorage.clear()
     router.push('/')
   }
 

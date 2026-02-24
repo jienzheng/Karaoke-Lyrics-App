@@ -13,6 +13,9 @@ export default function AuthCallback() {
     const userId = searchParams.get('user_id')
 
     if (accessToken) {
+      // Clear any guest state in this tab
+      sessionStorage.clear()
+
       localStorage.setItem('access_token', accessToken)
       if (refreshToken) {
         localStorage.setItem('refresh_token', refreshToken)

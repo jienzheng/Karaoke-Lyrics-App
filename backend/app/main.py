@@ -1,3 +1,7 @@
+from contextlib import asynccontextmanager
+import asyncio
+import logging
+
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from dotenv import load_dotenv
@@ -8,11 +12,41 @@ load_dotenv()
 
 # Import routers
 from app.routers import auth, lyrics, queue, romanization, spotify
+from app.services.queue_service import QueueService
+
+logger = logging.getLogger(__name__)
+
+CLEANUP_INTERVAL_SECONDS = 5 * 60  # 5 minutes
+
+
+async def _session_cleanup_loop():
+    """Background task that cleans up inactive sessions every 5 minutes."""
+    while True:
+        await asyncio.sleep(CLEANUP_INTERVAL_SECONDS)
+        try:
+            deleted = await QueueService.cleanup_inactive_sessions()
+            if deleted:
+                logger.info("Session cleanup: deleted %d inactive session(s)", deleted)
+        except Exception as e:
+            logger.warning("Session cleanup error: %s", e)
+
+
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    task = asyncio.create_task(_session_cleanup_loop())
+    yield
+    task.cancel()
+    try:
+        await task
+    except asyncio.CancelledError:
+        pass
+
 
 app = FastAPI(
     title="Karaoke Player API",
     description="Backend API for multilingual karaoke player with Spotify integration",
-    version="1.0.0"
+    version="1.0.0",
+    lifespan=lifespan,
 )
 
 # CORS Configuration

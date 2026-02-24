@@ -44,7 +44,21 @@ class User(BaseModel):
     display_name: str
     email: Optional[str] = None
     image_url: Optional[str] = None
+    is_guest: bool = False
     created_at: datetime = Field(default_factory=datetime.utcnow)
+
+
+class GuestJoinRequest(BaseModel):
+    """Request to join a session as a guest"""
+    display_name: str
+    session_code: str
+
+
+class GuestJoinResponse(BaseModel):
+    """Response after guest joins a session"""
+    user_id: str
+    session_id: str
+    is_guest: bool
 
 
 # ==================== Songs & Lyrics ====================
@@ -102,6 +116,7 @@ class QueueItem(BaseModel):
     id: str
     song: Song
     added_by: str  # User ID
+    added_by_name: Optional[str] = None
     added_at: datetime = Field(default_factory=datetime.utcnow)
     position: int
 
@@ -127,6 +142,7 @@ class Session(BaseModel):
 class SessionCreate(BaseModel):
     """Request to create a session"""
     name: str
+    refresh_token: Optional[str] = None
 
 
 class SessionJoin(BaseModel):
@@ -164,3 +180,20 @@ class PlaybackControl(BaseModel):
     action: str  # play, pause, next, previous, seek
     position_ms: Optional[int] = None
     volume: Optional[int] = None
+
+
+class PlaybackStateUpdate(BaseModel):
+    """Host reports current playback position for guest sync"""
+    is_playing: bool
+    position_ms: int
+    song_id: Optional[str] = None
+    countdown: Optional[int] = None
+
+
+class PlaybackStateResponse(BaseModel):
+    """Playback state returned to guests for lyrics sync"""
+    is_playing: bool
+    position_ms: int
+    song_id: Optional[str] = None
+    countdown: Optional[int] = None
+    updated_at: datetime
