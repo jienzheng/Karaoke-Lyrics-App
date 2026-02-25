@@ -15,6 +15,7 @@ import LyricsDisplay from '@/components/LyricsDisplay'
 import PlayerControls from '@/components/PlayerControls'
 import QueueSidebar from '@/components/QueueSidebar'
 import SongSearch from '@/components/SongSearch'
+import LandscapePrompt from '@/components/LandscapePrompt'
 
 type LyricsDisplayMode = 'original' | 'romanized' | 'both'
 
@@ -550,45 +551,49 @@ export default function PlayerPage() {
   return (
     <div className="h-screen bg-gradient-to-br from-gray-900 via-purple-900 to-gray-900 text-white overflow-hidden">
       <div className="h-full flex flex-col">
+        {/* Landscape prompt — only visible on portrait mobile */}
+        <LandscapePrompt />
+
         {/* Header */}
-        <header className="flex items-center justify-between px-6 py-4 bg-black/20 backdrop-blur-sm border-b border-white/10">
-          <div className="flex items-center space-x-4">
-            <h1 className="text-2xl font-bold bg-gradient-to-r from-purple-400 to-pink-400 bg-clip-text text-transparent">
-              Karaoke Player
+        <header className="flex items-center justify-between px-3 py-2 md:px-6 md:py-4 bg-black/20 backdrop-blur-sm border-b border-white/10">
+          <div className="flex items-center space-x-2 md:space-x-4">
+            {/* Title hidden on small screens to save space */}
+            <h1 className="hidden sm:block text-lg md:text-2xl font-bold bg-gradient-to-r from-purple-400 to-pink-400 bg-clip-text text-transparent">
+              Karaoke
             </h1>
             {session && (
-              <span className="px-3 py-1 bg-purple-600/30 rounded-full text-sm font-mono">
-                Session: {session.code}
+              <span className="px-2 py-0.5 md:px-3 md:py-1 bg-purple-600/30 rounded-full text-xs md:text-sm font-mono">
+                {session.code}
               </span>
             )}
           </div>
 
-          <div className="flex items-center space-x-4">
+          <div className="flex items-center space-x-2 md:space-x-4">
             {/* Lyrics Display Mode Toggle */}
-            <div className="flex items-center space-x-2 bg-gray-800/50 rounded-lg p-1">
+            <div className="flex items-center bg-gray-800/50 rounded-lg p-0.5 md:p-1">
               <button
                 onClick={() => setDisplayMode('original')}
-                className={`px-3 py-1 rounded-md text-sm font-medium transition-colors ${
+                className={`px-2 py-0.5 md:px-3 md:py-1 rounded-md text-xs md:text-sm font-medium transition-colors ${
                   displayMode === 'original'
                     ? 'bg-purple-600 text-white'
                     : 'text-gray-400 hover:text-white'
                 }`}
               >
-                Original
+                Orig
               </button>
               <button
                 onClick={() => setDisplayMode('romanized')}
-                className={`px-3 py-1 rounded-md text-sm font-medium transition-colors ${
+                className={`px-2 py-0.5 md:px-3 md:py-1 rounded-md text-xs md:text-sm font-medium transition-colors ${
                   displayMode === 'romanized'
                     ? 'bg-purple-600 text-white'
                     : 'text-gray-400 hover:text-white'
                 }`}
               >
-                Romanized
+                Rom
               </button>
               <button
                 onClick={() => setDisplayMode('both')}
-                className={`px-3 py-1 rounded-md text-sm font-medium transition-colors ${
+                className={`px-2 py-0.5 md:px-3 md:py-1 rounded-md text-xs md:text-sm font-medium transition-colors ${
                   displayMode === 'both'
                     ? 'bg-purple-600 text-white'
                     : 'text-gray-400 hover:text-white'
@@ -604,23 +609,13 @@ export default function PlayerPage() {
                 if (showSidebar && sidebarTab === 'search') { setShowSidebar(false) }
                 else { setShowSidebar(true); setSidebarTab('search') }
               }}
-              className={`p-2 rounded-lg transition-colors ${
+              className={`p-1.5 md:p-2 rounded-lg transition-colors ${
                 showSidebar && sidebarTab === 'search' ? 'bg-purple-600' : 'bg-gray-800/50 hover:bg-gray-700'
               }`}
               title="Search songs"
             >
-              <svg
-                className="w-5 h-5"
-                fill="none"
-                stroke="currentColor"
-                viewBox="0 0 24 24"
-              >
-                <path
-                  strokeLinecap="round"
-                  strokeLinejoin="round"
-                  strokeWidth={2}
-                  d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z"
-                />
+              <svg className="w-4 h-4 md:w-5 md:h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" />
               </svg>
             </button>
 
@@ -629,23 +624,13 @@ export default function PlayerPage() {
                 if (showSidebar && sidebarTab === 'queue') { setShowSidebar(false) }
                 else { setShowSidebar(true); setSidebarTab('queue') }
               }}
-              className={`p-2 rounded-lg transition-colors ${
+              className={`p-1.5 md:p-2 rounded-lg transition-colors ${
                 showSidebar && sidebarTab === 'queue' ? 'bg-purple-600' : 'bg-gray-800/50 hover:bg-gray-700'
               }`}
               title="Show queue"
             >
-              <svg
-                className="w-5 h-5"
-                fill="none"
-                stroke="currentColor"
-                viewBox="0 0 24 24"
-              >
-                <path
-                  strokeLinecap="round"
-                  strokeLinejoin="round"
-                  strokeWidth={2}
-                  d="M4 6h16M4 10h16M4 14h16M4 18h16"
-                />
+              <svg className="w-4 h-4 md:w-5 md:h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 6h16M4 10h16M4 14h16M4 18h16" />
               </svg>
             </button>
           </div>
@@ -762,7 +747,7 @@ export default function PlayerPage() {
               <div className="flex-shrink-0 bg-black/30 backdrop-blur-sm border-t border-white/10">
                 {/* Compact now-playing bar */}
                 {playbackState?.current_song && countdown === null && (
-                  <div className="flex items-center justify-center gap-3 px-4 pt-3">
+                  <div className="flex items-center justify-center gap-3 px-3 pt-2 md:pt-3">
                     <span className="text-sm font-semibold text-white truncate">
                       {playbackState.current_song.name}
                     </span>
@@ -772,7 +757,7 @@ export default function PlayerPage() {
                     </span>
                   </div>
                 )}
-                <div className="p-4 md:p-6">
+                <div className="p-2 md:p-6">
                   <PlayerControls
                     isPlaying={playerIsPlaying}
                     currentTimeMs={currentPosition}

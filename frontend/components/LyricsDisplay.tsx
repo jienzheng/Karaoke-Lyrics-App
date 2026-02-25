@@ -237,7 +237,7 @@ export default function LyricsDisplay({
       ref={containerRef}
       className="h-full w-full flex flex-col items-center justify-center px-4 sm:px-8 md:px-12"
     >
-      <div className="w-full max-w-5xl text-center flex flex-col items-center justify-center gap-[3vh]">
+      <div className="w-full max-w-5xl text-center flex flex-col items-center justify-center gap-[2vh]">
         {/* Current line */}
         <div
           key={`current-${currentLineIndex}`}
@@ -250,7 +250,9 @@ export default function LyricsDisplay({
                 progress={lineProgress}
                 activeClassName="font-bold text-transparent bg-clip-text bg-gradient-to-r from-purple-400 to-pink-400"
                 inactiveClassName="font-bold text-purple-400/40"
-                style={{ fontSize: 'clamp(1.5rem, 5vw, 4rem)' }}
+                // min() of vw and vh keeps the text from overflowing in landscape;
+                // rem minimum ensures it respects the user's system font-size setting.
+                style={{ fontSize: 'clamp(1.2rem, min(4vw, 7vh), 3.5rem)' }}
               />
               {getRomanized(currentLine) && (
                 <WordHighlightedLine
@@ -258,17 +260,17 @@ export default function LyricsDisplay({
                   progress={lineProgress}
                   activeClassName="text-purple-300"
                   inactiveClassName="text-purple-300/40"
-                  style={{ fontSize: 'clamp(1rem, 3vw, 2.5rem)', marginTop: '0.5rem' }}
+                  style={{ fontSize: 'clamp(0.9rem, min(2.8vw, 5vh), 2.5rem)', marginTop: '0.4rem' }}
                 />
               )}
             </>
           ) : (
-            <p className="text-2xl font-medium text-gray-600">...</p>
+            <p className="text-xl font-medium text-gray-600">...</p>
           )}
         </div>
 
         {/* Divider */}
-        <div className="w-16 h-px bg-gray-700/50" />
+        <div className="w-12 h-px bg-gray-700/50" />
 
         {/* Next line */}
         <div className="flex flex-col items-center justify-center">
@@ -276,21 +278,21 @@ export default function LyricsDisplay({
             <>
               <p
                 className="font-medium leading-snug text-gray-400 px-2"
-                style={{ fontSize: 'clamp(1.1rem, 3.2vw, 2.5rem)' }}
+                style={{ fontSize: 'clamp(1rem, min(3.5vw, 6vh), 3rem)' }}
               >
                 {getText(nextLine)}
               </p>
               {getRomanized(nextLine) && (
                 <p
                   className="leading-snug text-gray-500 mt-1"
-                  style={{ fontSize: 'clamp(0.85rem, 2vw, 1.8rem)' }}
+                  style={{ fontSize: 'clamp(0.8rem, min(2.2vw, 4vh), 2rem)' }}
                 >
                   {getRomanized(nextLine)}
                 </p>
               )}
             </>
           ) : currentLine ? (
-            <p className="text-lg text-gray-600">...</p>
+            <p className="text-base text-gray-600">...</p>
           ) : null}
         </div>
       </div>
