@@ -15,7 +15,6 @@ import LyricsDisplay from '@/components/LyricsDisplay'
 import PlayerControls from '@/components/PlayerControls'
 import QueueSidebar from '@/components/QueueSidebar'
 import SongSearch from '@/components/SongSearch'
-import LandscapePrompt from '@/components/LandscapePrompt'
 
 type LyricsDisplayMode = 'original' | 'romanized' | 'both'
 
@@ -551,9 +550,6 @@ export default function PlayerPage() {
   return (
     <div className="h-screen bg-gradient-to-br from-gray-900 via-purple-900 to-gray-900 text-white overflow-hidden">
       <div className="h-full flex flex-col">
-        {/* Landscape prompt — only visible on portrait mobile */}
-        <LandscapePrompt />
-
         {/* Header */}
         <header className="flex items-center justify-between px-3 py-2 md:px-6 md:py-4 bg-black/20 backdrop-blur-sm border-b border-white/10">
           <div className="flex items-center space-x-2 md:space-x-4">
