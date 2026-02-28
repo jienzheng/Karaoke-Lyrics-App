@@ -34,6 +34,7 @@ async def _session_cleanup_loop():
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
+    logger.info("CORS origins: %s", settings.cors_origins_list)
     task = asyncio.create_task(_session_cleanup_loop())
     yield
     task.cancel()
