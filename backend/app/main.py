@@ -50,8 +50,11 @@ app = FastAPI(
     lifespan=lifespan,
 )
 
-# CORS Configuration — union of CORS_ORIGINS list and FRONTEND_URL
-cors_origins = list(set(settings.cors_origins_list + [settings.FRONTEND_URL]))
+# CORS Configuration — union of CORS_ORIGINS list and FRONTEND_URL (strip trailing slashes)
+cors_origins = list(set(
+    [o.rstrip("/") for o in settings.cors_origins_list]
+    + [settings.FRONTEND_URL.rstrip("/")]
+))
 logger.info("CORS origins: %s", cors_origins)
 
 app.add_middleware(
