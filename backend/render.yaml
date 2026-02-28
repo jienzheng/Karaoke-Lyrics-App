@@ -1,0 +1,20 @@
+services:
+  - type: web
+    name: karaoke-backend
+    runtime: python
+    rootDir: backend
+    buildCommand: pip install -r requirements.txt
+    startCommand: uvicorn app.main:app --host 0.0.0.0 --port $PORT
+    envVars:
+      - key: ENVIRONMENT
+        value: production
+      # Set the following secrets in the Render dashboard (not here):
+      # SPOTIFY_CLIENT_ID
+      # SPOTIFY_CLIENT_SECRET
+      # SPOTIFY_REDIRECT_URI    → https://<your-render-url>/api/auth/callback
+      # SUPABASE_URL
+      # SUPABASE_KEY
+      # SUPABASE_SERVICE_KEY
+      # JWT_SECRET_KEY
+      # FRONTEND_URL            → https://karaoke-lyrics-app.vercel.app
+      # CORS_ORIGINS            → https://karaoke-lyrics-app.vercel.app

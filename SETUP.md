@@ -1,17 +1,15 @@
-# 🎤 Karaoke Player - Complete Setup Guide
+# Karaoke Player - Complete Setup Guide
 
-This guide will walk you through setting up the entire karaoke player application from scratch.
+This guide walks through setting up the karaoke player from scratch, including local development and production deployment.
 
-## 📋 Prerequisites
+## Prerequisites
 
-Before you begin, make sure you have:
-
-- **Node.js 18+** and npm installed
-- **Python 3.9+** installed
-- A **Spotify Developer Account** (free)
+- **Node.js 18+** and npm
+- **Python 3.12+**
+- A **Spotify Developer Account** (free) — Spotify Premium required for hosting playback
 - A **Supabase Account** (free tier is fine)
 - A **Vercel Account** (free tier is fine)
-- A **Railway Account** (free tier is fine)
+- A **Render** account for backend hosting (free tier works)
 
 ---
 
@@ -30,16 +28,12 @@ Before you begin, make sure you have:
 ### 1.2 Get Your Credentials
 
 1. On your app's dashboard, click **"Settings"**
-2. Copy your:
-   - **Client ID**
-   - **Client Secret** (click "View client secret")
-3. Save these for later
+2. Copy your **Client ID** and **Client Secret**
 
-### 1.3 Add Production Redirect URI
+### 1.3 Add Production Redirect URI (for later)
 
-Once you deploy, add your production URLs:
-- `https://your-backend-url.railway.app/api/auth/callback`
-- `https://your-frontend-url.vercel.app/auth/callback`
+After deploying, add your backend's production URL:
+- `https://<your-backend>.onrender.com/api/auth/callback`
 
 ---
 
@@ -49,93 +43,76 @@ Once you deploy, add your production URLs:
 
 1. Go to [Supabase Dashboard](https://supabase.com/dashboard)
 2. Click **"New Project"**
-3. Fill in:
-   - **Name**: karaoke-player
-   - **Database Password**: (generate a strong password and save it)
-   - **Region**: Choose closest to you
-4. Wait for the project to be created (~2 minutes)
+3. Fill in name, database password, and region
+4. Wait ~2 minutes for provisioning
 
-### 2.2 Run Database Migrations
+### 2.2 Run Database Schema
 
-1. In your Supabase project, go to **SQL Editor**
-2. Click **"New query"**
-3. Copy the contents of `backend/supabase/migrations/001_initial_schema.sql`
-4. Paste into the editor and click **"Run"**
-5. Verify tables were created in **Table Editor**
+1. In your Supabase project, go to **SQL Editor** → **New query**
+2. Copy the entire contents of `backend/supabase/schema_combined.sql`
+3. Paste and click **"Run"**
+4. Verify tables were created in **Table Editor**
+
+The combined schema creates all tables including: `users`, `sessions`, `queue_items`, `session_participants`, `lyrics_cache`, and `playback_state`, plus indexes, triggers, and guest/session-code columns.
 
 ### 2.3 Get Your Credentials
 
-1. Go to **Project Settings** > **API**
+1. Go to **Project Settings** → **API**
 2. Copy:
-   - **Project URL** (looks like `https://xxx.supabase.co`)
+   - **Project URL** (e.g. `https://xxx.supabase.co`)
    - **anon public key** (starts with `eyJ...`)
-   - **service_role key** (starts with `eyJ...`) - click "Reveal" to see it
+   - **service_role key** (click "Reveal") — keep this secret
 
 ---
 
-## Step 3: Backend Setup (Local Development)
+## Step 3: Backend Setup (Local)
 
-### 3.1 Navigate to Backend Directory
+### 3.1 Create Virtual Environment
 
 ```bash
 cd backend
+python -m venv .venv
+source .venv/bin/activate  # On Windows: .venv\Scripts\activate
 ```
 
-### 3.2 Create Virtual Environment
-
-```bash
-# Create virtual environment
-python -m venv venv
-
-# Activate it
-# On macOS/Linux:
-source venv/bin/activate
-# On Windows:
-venv\Scripts\activate
-```
-
-### 3.3 Install Dependencies
+### 3.2 Install Dependencies
 
 ```bash
 pip install -r requirements.txt
 ```
 
-### 3.4 Configure Environment Variables
+### 3.3 Configure Environment Variables
 
 ```bash
-# Copy the example file
 cp .env.example .env
-
-# Edit .env with your favorite editor
-nano .env
 ```
 
-Fill in your credentials:
+Edit `.env`:
 
 ```env
-# Server Configuration
+# Server
 PORT=8000
 ENVIRONMENT=development
 FRONTEND_URL=http://localhost:3000
 
-# Spotify API Configuration
+# Spotify
 SPOTIFY_CLIENT_ID=your_spotify_client_id_here
 SPOTIFY_CLIENT_SECRET=your_spotify_client_secret_here
 SPOTIFY_REDIRECT_URI=http://localhost:8000/api/auth/callback
 
-# Supabase Configuration
+# Supabase
 SUPABASE_URL=https://your_project.supabase.co
 SUPABASE_KEY=your_supabase_anon_key_here
 SUPABASE_SERVICE_KEY=your_supabase_service_role_key_here
 
-# JWT Secret (generate a random string)
-JWT_SECRET_KEY=your_random_jwt_secret_minimum_32_characters_long
+# JWT
+JWT_SECRET_KEY=your_random_jwt_secret_minimum_32_characters
 
-# CORS Origins
+# CORS — must match your frontend origin exactly (no trailing slash)
 CORS_ORIGINS=http://localhost:3000
 ```
 
-### 3.5 Run the Backend
+### 3.4 Run the Backend
 
 ```bash
 python -m app.main
@@ -143,55 +120,39 @@ python -m app.main
 
 You should see:
 ```
-INFO:     Started server process
 INFO:     Uvicorn running on http://0.0.0.0:8000
 ```
 
-Test it by visiting: http://localhost:8000/docs (Swagger UI)
+Verify with: http://localhost:8000/docs (Swagger UI)
 
 ---
 
-## Step 4: Frontend Setup (Local Development)
+## Step 4: Frontend Setup (Local)
 
-### 4.1 Navigate to Frontend Directory
+### 4.1 Install Dependencies
 
 ```bash
-cd ../frontend
+cd frontend
+npm install
 ```
 
-### 4.2 Install Dependencies
+### 4.2 Configure Environment Variables
 
 ```bash
-npm install --legacy-peer-deps
-```
-
-### 4.3 Configure Environment Variables
-
-```bash
-# Copy the example file
 cp .env.example .env.local
-
-# Edit .env.local
-nano .env.local
 ```
 
-Fill in:
+Edit `.env.local`:
 
 ```env
 NEXT_PUBLIC_API_URL=http://localhost:8000
 NEXT_PUBLIC_SPOTIFY_CLIENT_ID=your_spotify_client_id_here
 ```
 
-### 4.4 Run the Frontend
+### 4.3 Run the Frontend
 
 ```bash
 npm run dev
-```
-
-You should see:
-```
-✓ Ready in 2.5s
-○ Local:   http://localhost:3000
 ```
 
 Visit: http://localhost:3000
@@ -200,141 +161,107 @@ Visit: http://localhost:3000
 
 ## Step 5: Test the Application
 
-### 5.1 Login Flow
+### Host flow
 
 1. Go to http://localhost:3000
-2. Click **"Login with Spotify"**
-3. You'll be redirected to Spotify
-4. Authorize the app
-5. You should be redirected back
+2. Click **"Login with Spotify"** → authorize the app
+3. After redirect, click **"Create Session"** (name is optional)
+4. Note the 6-character session code shown in the player page
 
-### 5.2 Create a Session
+### Guest flow
 
-1. After login, create a new session
-2. Give it a name (e.g., "Friday Night Karaoke")
+1. Open a new tab (or different browser) at http://localhost:3000
+2. Enter a display name and the session code
+3. Click **"Join as Guest"** — no Spotify account needed
 
-### 5.3 Add Songs
+### Add songs and play
 
-1. Search for a song using the search bar
+1. Use the search bar to find a song
 2. Click **"Add to Queue"**
-3. The song should appear in the queue
-
-### 5.4 Play Music
-
-1. Click on a song in the queue
-2. The player should load
-3. Lyrics should appear and highlight as the song plays
+3. Click play — lyrics will highlight in sync
+4. Guests see lyrics synced to the host's playback position in real-time
 
 ---
 
 ## Step 6: Deploy to Production
 
-### 6.1 Deploy Backend to Railway
+### 6.1 Deploy Backend to Render
 
-1. Go to [Railway Dashboard](https://railway.app)
-2. Click **"New Project"** > **"Deploy from GitHub repo"**
-3. Connect your GitHub account and select your repository
-4. Railway will auto-detect the Python app
-5. Go to **Variables** and add all environment variables from your `.env` file
-   - Update `FRONTEND_URL` to your Vercel URL (get this in step 6.2)
-   - Update `SPOTIFY_REDIRECT_URI` to `https://your-railway-app.railway.app/api/auth/callback`
-   - Update `CORS_ORIGINS` to include your Vercel URL
-6. Click **"Deploy"**
-7. Once deployed, copy your Railway URL (e.g., `https://your-app.railway.app`)
+1. Push your code to GitHub
+2. Go to [Render Dashboard](https://render.com)
+3. Click **"New"** → **"Web Service"**
+4. Connect your GitHub repository
+5. Set:
+   - **Root Directory**: `backend`
+   - **Runtime**: Python
+   - **Build Command**: `pip install -r requirements.txt`
+   - **Start Command**: `uvicorn app.main:app --host 0.0.0.0 --port $PORT`
+6. Add environment variables (all from your `.env`, updated for production):
+   - `ENVIRONMENT=production`
+   - `FRONTEND_URL=https://your-vercel-app.vercel.app`
+   - `SPOTIFY_REDIRECT_URI=https://your-render-app.onrender.com/api/auth/callback`
+   - `CORS_ORIGINS=https://your-vercel-app.vercel.app`
+   - All Supabase and Spotify credentials
+7. Deploy and copy your Render URL
+
 
 ### 6.2 Deploy Frontend to Vercel
 
 1. Go to [Vercel Dashboard](https://vercel.com/dashboard)
-2. Click **"Add New..."** > **"Project"**
-3. Import your GitHub repository
-4. Vercel will auto-detect Next.js
-5. Configure:
-   - **Framework Preset**: Next.js
+2. Click **"Add New"** → **"Project"** → import your GitHub repo
+3. Set:
    - **Root Directory**: `frontend`
-   - **Build Command**: `npm run build`
-   - **Install Command**: `npm install --legacy-peer-deps`
-6. Add environment variables:
-   - `NEXT_PUBLIC_API_URL`: Your Railway URL from step 6.1
+   - **Framework Preset**: Next.js
+4. Add environment variables:
+   - `NEXT_PUBLIC_API_URL`: Your Render URL from step 6.1
    - `NEXT_PUBLIC_SPOTIFY_CLIENT_ID`: Your Spotify client ID
-7. Click **"Deploy"**
-8. Once deployed, copy your Vercel URL (e.g., `https://your-app.vercel.app`)
+5. Deploy and copy your Vercel URL
 
 ### 6.3 Update Spotify Redirect URIs
 
-1. Go back to [Spotify Developer Dashboard](https://developer.spotify.com/dashboard)
-2. Select your app
-3. Click **"Settings"**
-4. Add redirect URIs:
-   - `https://your-railway-app.railway.app/api/auth/callback`
-   - `https://your-vercel-app.vercel.app/auth/callback`
-5. Click **"Save"**
+1. Go to [Spotify Developer Dashboard](https://developer.spotify.com/dashboard)
+2. Select your app → **Settings**
+3. Add:
+   - `https://your-render-app.onrender.com/api/auth/callback`
+4. Save
 
-### 6.4 Update Backend Environment Variables
+### 6.4 Final Backend Environment Update
 
-Go back to Railway and update:
+Back in Render, update:
 - `FRONTEND_URL`: `https://your-vercel-app.vercel.app`
-- `SPOTIFY_REDIRECT_URI`: `https://your-railway-app.railway.app/api/auth/callback`
+- `SPOTIFY_REDIRECT_URI`: `https://your-render-app.onrender.com/api/auth/callback`
 - `CORS_ORIGINS`: `https://your-vercel-app.vercel.app`
-- `ENVIRONMENT`: `production`
 
-Redeploy the backend.
-
----
-
-## Step 7: Verify Production Deployment
-
-1. Visit your Vercel URL
-2. Test the login flow
-3. Create a session
-4. Add songs
-5. Play music with lyrics
+Trigger a redeploy.
 
 ---
 
-## 🎉 You're Done!
-
-Your karaoke player is now fully deployed and ready to use!
-
-## 📚 Next Steps
-
-- Customize the UI theme in `frontend/app/globals.css`
-- Add more languages (edit `backend/app/services/romanization_service.py`)
-- Invite friends to join your karaoke sessions
-- Consider upgrading to Spotify Premium for better playback
-
-## 🐛 Troubleshooting
+## Troubleshooting
 
 ### "Authorization failed" error
-- Check that your Spotify Client ID and Secret are correct
-- Verify redirect URIs match exactly in Spotify Dashboard
+- Check Spotify Client ID and Secret are correct
+- Verify redirect URI matches exactly in Spotify Dashboard (no trailing slash)
 
 ### "Failed to fetch lyrics"
-- LRCLIB API might not have lyrics for that song
-- Try a different, more popular song
+- LRCLIB may not have lyrics for that song; try a more popular song
+- Check backend logs for errors
 
-### Lyrics not syncing properly
-- Ensure the song is actually playing (Spotify Premium required)
-- Check browser console for errors
+### Lyrics not syncing for guests
+- Ensure the host's browser is playing (Spotify SDK must be active)
+- Check browser console for network errors on `/playback-state` polling
+
+### CORS errors
+- `CORS_ORIGINS` must be the exact frontend URL with no trailing slash
+- Verify `NEXT_PUBLIC_API_URL` has no trailing slash
 
 ### Database errors
 - Verify Supabase credentials are correct
-- Check that migrations were run successfully
-- Ensure Row Level Security policies are set up
+- Confirm `schema_combined.sql` was run successfully (check Table Editor)
 
-### CORS errors
-- Update `CORS_ORIGINS` in backend environment variables
-- Must include exact frontend URL (no trailing slash)
-
----
-
-## 📞 Support
-
-If you encounter issues:
-1. Check the logs in Railway (backend) and Vercel (frontend)
-2. Ensure all environment variables are set correctly
-3. Verify Spotify Developer app settings
-4. Check Supabase database connection
+### Guest can't join
+- Session must be active (not cleaned up by the 5-minute inactivity timer)
+- Session code is case-insensitive but must be exactly 6 characters
 
 ---
 
-**Enjoy your karaoke sessions! 🎤🎶**
+**Enjoy your karaoke sessions!**

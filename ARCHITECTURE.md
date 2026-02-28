@@ -1,4 +1,4 @@
-# 🏗️ Architecture Documentation
+# Architecture Documentation
 
 ## System Overview
 
@@ -8,9 +8,9 @@
 ├─────────────────────────────────────────────────────────────┤
 │  Next.js 14 Frontend (TypeScript)                           │
 │  - React Components                                          │
-│  - Spotify Web Playback SDK                                  │
-│  - Real-time UI Updates (Polling)                            │
+│  - Spotify Web Playback SDK (host browser)                  │
 │  - Tailwind CSS Styling                                      │
+│  - @dnd-kit drag-and-drop queue reordering                  │
 └────────────────┬────────────────────────────────────────────┘
                  │ HTTPS/REST API
                  ▼
@@ -20,10 +20,10 @@
 │  Python FastAPI Backend                                      │
 │  ┌──────────────────────────────────────────────────────┐   │
 │  │  Routers                                              │   │
-│  │  ├─ /api/auth      → Spotify OAuth                   │   │
-│  │  ├─ /api/spotify   → Song search                     │   │
-│  │  ├─ /api/lyrics    → Lyrics fetching                 │   │
-│  │  ├─ /api/queue     → Queue management                │   │
+│  │  ├─ /api/auth         → Spotify OAuth + guest join   │   │
+│  │  ├─ /api/spotify      → Song search                  │   │
+│  │  ├─ /api/lyrics       → Lyrics fetching              │   │
+│  │  ├─ /api/queue        → Queue + playback state       │   │
 │  │  └─ /api/romanization → Language conversion          │   │
 │  └──────────────────────────────────────────────────────┘   │
 │  ┌──────────────────────────────────────────────────────┐   │
@@ -31,11 +31,11 @@
 │  │  ├─ SpotifyAuthService                               │   │
 │  │  ├─ SpotifyService                                   │   │
 │  │  ├─ LyricsService (LRCLIB API)                       │   │
-│  │  ├─ RomanizationService (pypinyin, pykakasi)        │   │
+│  │  ├─ RomanizationService (pypinyin, pykakasi)         │   │
 │  │  └─ QueueService                                     │   │
 │  └──────────────────────────────────────────────────────┘   │
+│  Background: session cleanup task (every 5 min)              │
 └────────┬───────────┬──────────────────────────────────┬─────┘
-         │           │                                  │
          │           │                                  │
          ▼           ▼                                  ▼
 ┌─────────────┐ ┌──────────────┐              ┌─────────────┐
@@ -44,9 +44,10 @@
 │             │ │ - OAuth      │              │             │
 │ - Users     │ │ - Search     │              │ - Synced    │
 │ - Sessions  │ │ - Tracks     │              │ - Plain     │
-│ - Queue     │ │ - Playback   │              │             │
-│ - Lyrics    │ │              │              │             │
-└─────────────┘ └──────────────┘              └─────────────┘
+│ - Queue     │ │              │              │             │
+│ - Lyrics    │ └──────────────┘              └─────────────┘
+│ - Playback  │
+└─────────────┘
 ```
 
 ## Frontend Architecture
@@ -55,31 +56,36 @@
 
 ```
 app/
-├── layout.tsx (Root Layout)
-├── page.tsx (Login Page)
-│
-├── player/[sessionId]/
-│   └── page.tsx (Main Player Page)
-│       ├── <NowPlaying />
-│       ├── <LyricsDisplay />          ⭐ Core Feature
-│       ├── <PlayerControls />
-│       ├── <QueueSidebar />
-│       └── <SongSearch />
-│
+├── layout.tsx              # Root Layout
+├── page.tsx                # Login page (Spotify host or guest join)
+├── auth/callback/
+│   └── page.tsx            # OAuth callback — stores tokens, redirects
+├── dashboard/
+│   └── page.tsx            # Create or join a session
+└── player/[sessionId]/
+    └── page.tsx            # Main player page
+        ├── <LandscapePrompt />     # Mobile: rotate to landscape hint
+        ├── <NowPlaying />
+        ├── <LyricsDisplay />       ⭐ Core Feature
+        ├── <PlayerControls />
+        ├── <QueueSidebar />        # With drag-and-drop reordering
+        └── <SongSearch />
+
 components/
-├── LyricsDisplay.tsx       → Line-level synchronized lyrics
-├── NowPlaying.tsx          → Album art & song info
-├── PlayerControls.tsx      → Play/pause/skip/volume
-├── QueueSidebar.tsx        → Queue management
-└── SongSearch.tsx          → Spotify search
+├── LandscapePrompt.tsx  → Mobile landscape orientation banner
+├── LyricsDisplay.tsx    → Time-synced lyrics highlighting
+├── NowPlaying.tsx       → Album art & song info
+├── PlayerControls.tsx   → Play/pause/skip/volume/seek
+├── QueueSidebar.tsx     → Queue management with dnd-kit reorder
+└── SongSearch.tsx       → Spotify search
 
 hooks/
 ├── useSpotifyPlayer.ts     → Spotify SDK integration
-├── useRealtimeQueue.ts     → Queue synchronization
-└── useRealtimeSession.ts   → Session synchronization
+├── useRealtimeQueue.ts     → Queue polling/sync
+└── useRealtimeSession.ts   → Session state sync
 
 lib/
-├── api.ts                  → Backend API client
+├── api.ts                  → Backend + Spotify API client
 └── utils.ts                → Utility functions
 
 types/
@@ -87,16 +93,26 @@ types/
 └── spotify.d.ts            → Spotify SDK types
 ```
 
+### User Flows
+
+**Host flow:**
+1. Login page → Spotify OAuth
+2. OAuth callback (`/auth/callback`) → stores `access_token`, `refresh_token`, `user_id` in `localStorage` → redirects to `/dashboard`
+3. Dashboard → create session (generates 6-char code) or join existing
+4. Player page → Spotify SDK loads in browser, host controls playback
+
+**Guest flow:**
+1. Login page → enter display name + 6-char session code → `POST /api/auth/guest-join`
+2. Guest `user_id` and `session_id` stored in `sessionStorage` (tab-isolated, doesn't clobber host's `localStorage`)
+3. Directly to `/player/[sessionId]` — no Spotify account needed
+4. Lyrics sync via polling `GET /{sessionId}/playback-state` every ~1s
+
 ### Data Flow
 
 ```
-User Action → Component → API Call → Backend → Database
-                ↓
-         Update UI State
-                ↓
-    Real-time Sync (Polling)
-                ↓
-         Update All Clients
+Host playback → Spotify SDK position_ms → PUT /playback-state (every ~1s)
+                                                    ↓ (stored in DB)
+Guest polls GET /playback-state → reads position_ms → highlights lyrics
 ```
 
 ## Backend Architecture
@@ -114,15 +130,15 @@ Response  Result     Data
 ### Key Services
 
 **SpotifyAuthService**
-- OAuth 2.0 flow
-- Token management
-- Token refresh
+- OAuth 2.0 authorization code flow
+- Token exchange and refresh
+- User profile fetch
 
 **LyricsService**
 - LRCLIB API integration
 - LRC format parsing
 - Language detection
-- Caching
+- DB caching
 
 **RomanizationService**
 - Chinese → Pinyin (pypinyin)
@@ -130,10 +146,14 @@ Response  Result     Data
 - Korean → Romanization (hangul-romanize)
 
 **QueueService**
-- Session management
-- Queue CRUD operations
-- Position management
-- Current song tracking
+- Session management (create, join, cleanup)
+- Queue CRUD + reorder (single item and batch)
+- Playback state store/retrieve (in-memory dict, fast)
+- Host Spotify token retrieval for guest song additions
+
+### Background Tasks
+
+- **Session cleanup**: runs every 5 minutes, marks inactive sessions as `is_active=false`
 
 ## Database Schema
 
@@ -141,10 +161,11 @@ Response  Result     Data
 
 **users**
 - id (UUID, PK)
-- spotify_id (unique)
+- spotify_id (unique) — for guests: `guest_<random12hex>`
 - display_name
 - email
 - image_url
+- is_guest (boolean) — true for guest users
 - created_at, updated_at
 
 **sessions**
@@ -152,13 +173,17 @@ Response  Result     Data
 - name
 - host_id (FK → users)
 - is_active
+- code (VARCHAR 6, unique) — shareable join code, e.g. `"AB12CD"`
+- host_refresh_token — stored so guests can use the host's Spotify token
+- last_activity_at — used for inactivity cleanup
 - lyrics_display_mode
 - created_at, updated_at
 
 **queue_items**
 - id (UUID, PK)
 - session_id (FK → sessions)
-- song_id, song_name, artist_name
+- song_id, song_name, artist_name, album_name
+- duration_ms
 - spotify_uri, image_url
 - added_by (FK → users)
 - position (ordered)
@@ -170,14 +195,24 @@ Response  Result     Data
 - session_id (FK → sessions)
 - user_id (FK → users)
 - joined_at
+- UNIQUE(session_id, user_id)
 
 **lyrics_cache**
 - id (UUID, PK)
 - song_id (unique)
+- song_name, artist_name
 - original_lyrics (JSONB)
 - romanized_lyrics (JSONB)
 - language, synced, source
 - created_at, updated_at
+
+**playback_state**
+- session_id (UUID, PK, FK → sessions)
+- is_playing (boolean)
+- position_ms (integer)
+- song_id (VARCHAR)
+- countdown (integer, nullable) — 5..1 for pre-song countdown
+- updated_at
 
 ### Relationships
 
@@ -187,50 +222,42 @@ users (1) ──< (N) queue_items (added_by)
 sessions (1) ──< (N) queue_items
 sessions (1) ──< (N) session_participants
 users (1) ──< (N) session_participants
+sessions (1) ──< (1) playback_state
 ```
 
 ## Critical Features
 
-### 1. Synchronized Lyrics Highlighting ⭐
+### 1. Synchronized Lyrics Highlighting
 
-**Implementation:**
+**Host side:**
 ```typescript
-// Track playback position
-const [position, setPosition] = useState(0);
-
-// Update every second
-useEffect(() => {
-  const interval = setInterval(() => {
-    player?.getCurrentState().then(state => {
-      setPosition(state?.position || 0);
-    });
-  }, 1000);
-}, [player]);
+// Spotify SDK provides position every second
+player.addListener('player_state_changed', (state) => {
+  setPosition(state.position)
+})
 
 // Highlight current line
 const currentLine = lyrics.lines.find(line =>
-  position >= line.start_time && position < line.end_time
-);
+  position >= line.time_ms && position < nextLine.time_ms
+)
 ```
 
-**Timing Flow:**
-1. Spotify SDK provides position_ms
-2. Convert to seconds
-3. Match against lyric line timestamps
-4. Apply highlight class to current line
-5. Auto-scroll to keep visible
+**Guest sync:**
+```
+Host browser → PUT /playback-state { position_ms, is_playing, song_id }
+                             ↓ (DB upsert)
+Guest polls GET /playback-state every ~1s → uses position_ms for highlighting
+```
 
-### 2. Multi-user Real-time Sync
+### 2. Guest Join Without Spotify
 
-**Implementation:**
-- Polling every 2-3 seconds
-- Compare queue state
-- Emit change events
-- Update UI reactively
+Guests get a full session experience without a Spotify account:
+- They can browse the queue, see lyrics, and add songs
+- Songs are added using the host's stored Spotify refresh token
+- Guest state is stored in `sessionStorage` so the host can be in the same browser without conflict
 
 ### 3. Language Detection & Romanization
 
-**Process:**
 ```
 Original Text
      ↓
@@ -243,91 +270,65 @@ Korean? → hangul-romanize → Romanization
 Display Both Versions
 ```
 
+### 4. Queue Reordering
+
+The host can drag queue items to reorder them. The frontend sends a batch reorder request with the full ordered list of item IDs, which updates all `position` values in the DB in a single operation.
+
 ## Security
 
 ### Authentication
-- Spotify OAuth 2.0
-- JWT for session management
+- Spotify OAuth 2.0 (hosts)
+- Guest tokens are ephemeral UUIDs with no Spotify scopes
+- JWT not currently used for session validation (token passed directly to Spotify API)
 - Row Level Security (RLS) in Supabase
 
 ### Authorization
-- Users can only modify their own queue items
-- Session hosts have additional permissions
-- RLS policies enforce access control
+- Queue item deletion checks `added_by` matches requesting user
+- Session hosts have additional permissions (playback control, skip)
 
-## Performance Optimizations
+## Performance
 
 ### Frontend
 - Debounced search (300ms)
-- Lazy loading components
 - Image optimization (Next.js)
 - Client-side caching
 
 ### Backend
-- Lyrics caching in database
-- Connection pooling
-- Async operations
+- Lyrics cached in DB after first fetch
+- Playback state stored in memory (Python dict) — fast reads for frequent guest polling
+- Async operations throughout
 
 ### Database
-- Indexed foreign keys
-- Indexed frequently queried columns
-- Efficient queries with proper JOINs
-
-## Scalability Considerations
-
-### Current Architecture
-- Supports: ~100 concurrent sessions
-- Polling interval: 2-3 seconds
-- Database: Free tier (up to 500 MB)
-
-### Future Improvements
-- WebSocket for real-time updates
-- Redis for caching
-- CDN for static assets
-- Database read replicas
-- Horizontal scaling with load balancer
-
-## Technology Stack
-
-| Layer | Technology | Why? |
-|-------|-----------|------|
-| Frontend Framework | Next.js 14 | SSR, App Router, great DX |
-| UI Styling | Tailwind CSS | Rapid development, customizable |
-| Language | TypeScript | Type safety, better IDE support |
-| Backend Framework | FastAPI | Fast, async, automatic docs |
-| Language | Python 3.9+ | Rich ecosystem, easy romanization libs |
-| Database | Supabase (PostgreSQL) | Free tier, real-time, managed |
-| Auth | Spotify OAuth | Required for Spotify API access |
-| Lyrics | LRCLIB API | Free, time-synced lyrics |
-| Audio Playback | Spotify Web Playback SDK | Official, reliable |
-| Deployment (Frontend) | Vercel | Optimized for Next.js |
-| Deployment (Backend) | Railway | Easy Python deployment, free tier |
+- Indexed foreign keys and frequently queried columns
 
 ## API Endpoints
 
 ### Authentication
-- `GET /api/auth/login` - Get Spotify auth URL
-- `GET /api/auth/callback` - OAuth callback
-- `POST /api/auth/refresh` - Refresh token
-- `GET /api/auth/me` - Get current user
+- `GET /api/auth/login` - Redirect to Spotify auth
+- `GET /api/auth/callback` - OAuth callback; redirects to frontend with tokens
+- `POST /api/auth/refresh` - Refresh Spotify access token
+- `GET /api/auth/me` - Get current user (requires `Authorization: Bearer <token>`)
+- `POST /api/auth/guest-join` - Join session as guest (no Spotify needed)
 
 ### Spotify
 - `GET /api/spotify/search?q={query}` - Search songs
-- `GET /api/spotify/track/{id}` - Get track details
 
 ### Lyrics
-- `POST /api/lyrics/fetch` - Fetch lyrics
-- `GET /api/lyrics/song/{id}` - Get cached lyrics
+- `GET /api/lyrics/song/{id}` - Get lyrics (fetches + caches on first call)
 
 ### Queue
 - `POST /api/queue/session/create` - Create session
-- `POST /api/queue/session/join` - Join session
-- `GET /api/queue/session/{id}` - Get session
-- `POST /api/queue/add` - Add to queue
+- `POST /api/queue/session/join` - Join session by ID
+- `GET /api/queue/session/{id}` - Get session details
+- `POST /api/queue/add` - Add song to queue
 - `GET /api/queue/{sessionId}/list` - Get queue
 - `DELETE /api/queue/{itemId}` - Remove from queue
-- `POST /api/queue/{sessionId}/next` - Play next
-- `GET /api/queue/{sessionId}/current` - Get current song
+- `POST /api/queue/{sessionId}/reorder` - Move one item to new position
+- `POST /api/queue/{sessionId}/reorder-batch` - Reorder all items at once
+- `POST /api/queue/{sessionId}/next` - Advance to next song
+- `GET /api/queue/{sessionId}/current` - Get currently playing song
+- `PUT /api/queue/{sessionId}/playback-state` - Host updates playback position
+- `GET /api/queue/{sessionId}/playback-state` - Guests poll playback position
 
 ### Romanization
 - `POST /api/romanization/convert` - Romanize text
@@ -338,13 +339,11 @@ Display Both Versions
 ```
 ┌──────────────────────────────────────────────────┐
 │              Vercel Edge Network                  │
-│         (Frontend - Next.js Static)               │
-│              ↓ HTTPS                              │
-│         Users' Browsers                           │
+│         (Frontend - Next.js)                      │
 └──────────────────────────────────────────────────┘
                       ↓ REST API
 ┌──────────────────────────────────────────────────┐
-│            Railway Cloud                          │
+│             Render Cloud                          │
 │         (Backend - FastAPI)                       │
 │              ↓ SQL                                │
 │         Supabase Cloud                            │
@@ -352,28 +351,26 @@ Display Both Versions
 └──────────────────────────────────────────────────┘
 ```
 
+A `render.yaml` is included in `backend/` for one-click Render deploys.
+
 ## Development Workflow
 
 1. **Local Development**
    - Backend: `python -m app.main` (port 8000)
    - Frontend: `npm run dev` (port 3000)
-   - Database: Supabase cloud (or local with Docker)
+   - Database: Supabase cloud
 
-2. **Testing**
-   - Manual testing in browser
-   - Check API docs at `/docs`
+2. **API Docs**
+   - Swagger UI: `http://localhost:8000/docs`
 
 3. **Deployment**
-   - Push to GitHub
-   - Vercel auto-deploys frontend
-   - Railway auto-deploys backend
-   - No downtime deployments
+   - Push to GitHub → Vercel auto-deploys frontend
+   - Push to GitHub → Render auto-deploys backend
 
 ---
 
-This architecture is designed for:
-- ✅ Simplicity (easy to understand and maintain)
-- ✅ Scalability (can grow with usage)
-- ✅ Cost-effectiveness (free tier friendly)
-- ✅ Developer experience (fast iteration)
-- ✅ User experience (smooth, responsive)
+Architecture designed for:
+- Simplicity (easy to understand and maintain)
+- Cost-effectiveness (free tier friendly)
+- Fast iteration
+- Smooth user experience for both hosts and guests
